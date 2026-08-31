@@ -187,7 +187,6 @@ class TransferCard extends StatelessWidget {
           if (showActions && isCompleted) ...[
             const SizedBox(height: 12),
             Row(
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 _buildActionButton(
                   icon: Icons.open_in_new_rounded,
