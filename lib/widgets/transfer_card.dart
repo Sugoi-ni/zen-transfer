@@ -187,32 +187,29 @@ class TransferCard extends StatelessWidget {
           if (showActions && isCompleted) ...[
             const SizedBox(height: 12),
             Row(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Expanded(
-                  child: _buildActionButton(
-                    icon: Icons.open_in_new_rounded,
-                    label: 'Open',
-                    color: ZenTheme.primaryPurple,
-                    onTap: () => _openFile(context),
-                  ),
+                _buildActionButton(
+                  icon: Icons.open_in_new_rounded,
+                  label: 'Open',
+                  color: ZenTheme.primaryPurple,
+                  onTap: () => _openFile(context),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _buildActionButton(
+                if (defaultTargetPlatform != TargetPlatform.windows) ...[
+                  const SizedBox(width: 8),
+                  _buildActionButton(
                     icon: Icons.share_rounded,
                     label: 'Share',
                     color: ZenTheme.accentPurple,
                     onTap: () => _shareFile(context),
                   ),
-                ),
+                ],
                 const SizedBox(width: 8),
-                Expanded(
-                  child: _buildActionButton(
-                    icon: Icons.folder_open_rounded,
-                    label: 'Folder',
-                    color: ZenTheme.textSecondary,
-                    onTap: () => _openFolder(context),
-                  ),
+                _buildActionButton(
+                  icon: Icons.folder_open_rounded,
+                  label: 'Folder',
+                  color: ZenTheme.textSecondary,
+                  onTap: () => _openFolder(context),
                 ),
               ],
             ),
