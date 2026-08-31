@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:share_plus/share_plus.dart';
@@ -389,7 +390,18 @@ class TransferCard extends StatelessWidget {
       }
       return;
     }
-    await SharePlus.instance.share(ShareParams(files: [XFile(filePath)]));
+
+    // On Windows, open file with default app (share_plus doesn't work well on desktop)
+    if (defaultTargetPlatform == TargetPlatform.windows) {
+      final result = await OpenFilex.open(filePath);
+      if (result.type != ResultType.done && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open: ${result.message}')),
+        );
+      }
+    } else {
+      await SharePlus.instance.share(ShareParams(files: [XFile(filePath)]));
+    }
   }
 
   Future<void> _openFolder(BuildContext context) async {
