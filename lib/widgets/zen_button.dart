@@ -32,7 +32,7 @@ class ZenButton extends StatelessWidget {
               ),
             ),
             child: isLoading
-                ? const SizedBox(
+                ? SizedBox(
                     width: 22,
                     height: 22,
                     child: CircularProgressIndicator(
@@ -44,7 +44,7 @@ class ZenButton extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(icon, size: 20),
-                      const SizedBox(width: 10),
+                      SizedBox(width: 10),
                       Text(label),
                     ],
                   ),
@@ -53,13 +53,13 @@ class ZenButton extends StatelessWidget {
             onPressed: isLoading ? null : onPressed,
             style: OutlinedButton.styleFrom(
               minimumSize: Size(width ?? double.infinity, 56),
-              side: const BorderSide(color: ZenTheme.darkBorderLight),
+              side: BorderSide(color: ZenTheme.darkBorderLight),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
               ),
             ),
             child: isLoading
-                ? const SizedBox(
+                ? SizedBox(
                     width: 22,
                     height: 22,
                     child: CircularProgressIndicator(

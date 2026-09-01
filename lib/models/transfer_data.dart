@@ -1,6 +1,6 @@
 enum TransferType { file, text, clipboard, screenshot, image }
 
-enum TransferStatus { pending, connecting, transferring, completed, failed }
+enum TransferStatus { pending, connecting, transferring, paused, completed, failed }
 
 enum ConnectionMode { local, internet }
 
@@ -19,6 +19,8 @@ class TransferData {
   final ConnectionMode mode;
   final bool encrypted;
   final String? error;
+  final DateTime? transferStartedAt;
+  final bool isPaused;
 
   TransferData({
     required this.id,
@@ -35,16 +37,36 @@ class TransferData {
     this.mode = ConnectionMode.local,
     this.encrypted = true,
     this.error,
+    this.transferStartedAt,
+    this.isPaused = false,
   }) : timestamp = timestamp ?? DateTime.now();
 
   double get progress =>
       fileSize != null && fileSize! > 0 ? transferredBytes / fileSize! : 0;
+
+  /// Transfer speed in bytes/second (null if not enough data)
+  double? get speed {
+    if (transferStartedAt == null || transferredBytes <= 0) return null;
+    final elapsed = DateTime.now().difference(transferStartedAt!).inMilliseconds;
+    if (elapsed < 500) return null; // need at least 500ms for meaningful speed
+    return transferredBytes / (elapsed / 1000.0);
+  }
+
+  /// Estimated time remaining in seconds (null if can't calculate)
+  double? get eta {
+    if (speed == null || fileSize == null) return null;
+    final remaining = fileSize! - transferredBytes;
+    if (remaining <= 0) return 0;
+    return remaining / speed!;
+  }
 
   TransferData copyWith({
     TransferStatus? status,
     int? transferredBytes,
     String? error,
     String? filePath,
+    DateTime? transferStartedAt,
+    bool? isPaused,
   }) {
     return TransferData(
       id: id,
@@ -61,6 +83,8 @@ class TransferData {
       mode: mode,
       encrypted: encrypted,
       error: error,
+      transferStartedAt: transferStartedAt ?? this.transferStartedAt,
+      isPaused: isPaused ?? this.isPaused,
     );
   }
 
@@ -78,6 +102,7 @@ class TransferData {
     'timestamp': timestamp.toIso8601String(),
     'mode': mode.name,
     'encrypted': encrypted,
+    'transferStartedAt': transferStartedAt?.toIso8601String(),
   };
 
   factory TransferData.fromJson(Map<String, dynamic> json) {
@@ -95,6 +120,9 @@ class TransferData {
       timestamp: DateTime.parse(json['timestamp']),
       mode: ConnectionMode.values.byName(json['mode']),
       encrypted: json['encrypted'] ?? true,
+      transferStartedAt: json['transferStartedAt'] != null
+          ? DateTime.parse(json['transferStartedAt'])
+          : null,
     );
   }
 }

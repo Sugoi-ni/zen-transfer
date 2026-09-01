@@ -27,7 +27,7 @@ class _BoxScreenState extends State<BoxScreen> {
       backgroundColor: ZenTheme.darkBg,
       appBar: AppBar(
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: ZenTheme.textPrimary),
+          icon: Icon(Icons.arrow_back_rounded, color: ZenTheme.textPrimary),
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text('Incoming Files'),
@@ -56,8 +56,8 @@ class _BoxScreenState extends State<BoxScreen> {
                       color: ZenTheme.primaryPurple.withValues(alpha: 0.4),
                     ),
                   ),
-                  const SizedBox(height: 20),
-                  const Text(
+                  SizedBox(height: 20),
+                  Text(
                     'No incoming files',
                     style: TextStyle(
                       color: ZenTheme.textPrimary,
@@ -65,8 +65,8 @@ class _BoxScreenState extends State<BoxScreen> {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  const Text(
+                  SizedBox(height: 6),
+                  Text(
                     'Files from other devices\nwill appear here',
                     style: TextStyle(
                       color: ZenTheme.textTertiary,

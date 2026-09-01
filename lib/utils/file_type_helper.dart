@@ -81,10 +81,34 @@ class FileTypeHelper {
   }
 
   /// Check if the file is an image
-  static bool isImage(String fileName) {
-    final ext = _getExtension(fileName).toLowerCase();
-    return _imageExtensions.contains(ext);
+  static bool isImage(String ext) {
+    return _imageExtensions.contains(ext.toLowerCase());
   }
+
+  /// Check if the file is a video
+  static bool isVideo(String ext) {
+    return _videoExtensions.contains(ext.toLowerCase());
+  }
+
+  /// Check if the file is an audio
+  static bool isAudio(String ext) {
+    return _audioExtensions.contains(ext.toLowerCase());
+  }
+
+  /// Check if the file is a text/code file
+  static bool isText(String ext) {
+    final e = ext.toLowerCase();
+    return _docExtensions.contains(e) || _codeExtensions.contains(e) || e == 'md';
+  }
+
+  /// Extensions that can show a preview thumbnail
+  static const previewableExtensions = [
+    ..._imageExtensions,
+    ..._videoExtensions,
+    ..._audioExtensions,
+    'txt', 'md', 'json', 'yaml', 'xml', 'csv', 'rtf',
+    'dart', 'js', 'ts', 'py', 'java', 'html', 'css', 'sql',
+  ];
 
   static String _getExtension(String fileName) {
     final lastDot = fileName.lastIndexOf('.');

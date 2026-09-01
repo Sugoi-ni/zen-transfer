@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../theme/zen_theme.dart';
 import '../providers/transfer_provider.dart';
+import '../services/share_service.dart';
 import '../widgets/device_tile.dart';
 import '../widgets/transfer_card.dart';
 import '../models/transfer_data.dart';
@@ -21,6 +22,8 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  AppLifecycleListener? _lifecycleListener;
+  bool _isInitialized = false;
 
   @override
   void initState() {
@@ -28,6 +31,168 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeApp();
     });
+    // Android: catch share intents that arrive while the app is already
+    // running (onNewIntent). When the user returns from the share sheet
+    // the app transitions to `resumed`, so we re-check for shared content.
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      _lifecycleListener = AppLifecycleListener(
+        onResume: () {
+          if (_isInitialized) {
+            _checkSharedContent();
+          }
+        },
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _lifecycleListener?.dispose();
+    super.dispose();
+  }
+
+  /// Check if the app was opened via Android share sheet
+  Future<void> _checkSharedContent() async {
+    final provider = context.read<TransferProvider>();
+    // Wait for provider init (device name needed for receiverName)
+    await Future.delayed(const Duration(milliseconds: 300));
+    final content = await ShareService().getSharedContent();
+    if (content.isEmpty || !mounted) return;
+
+    if (content.isText && content.text != null && content.text!.isNotEmpty) {
+      debugPrint('Shared text: ${content.text!.length} chars');
+      await _showShareTargetPicker(
+        title: 'Send shared text to',
+        subtitle: '${content.text!.length} characters',
+        onDeviceSelected: (device) async {
+          await provider.sendTextToDevice(device, content.text!);
+        },
+      );
+    } else if (content.isFiles) {
+      debugPrint('Shared files: ${content.files.length}');
+      await _showShareTargetPicker(
+        title: 'Send ${content.files.length} file(s) to',
+        subtitle: content.files.map((f) => f.name).join(', '),
+        onDeviceSelected: (device) async {
+          for (final file in content.files) {
+            final bytes = await ShareService().readSharedFile(file.uri);
+            if (bytes.isNotEmpty) {
+              await provider.sendFileBytesToDevice(device, bytes, file.name);
+            }
+          }
+        },
+      );
+    }
+  }
+
+  /// Show device picker for shared content, then send to selection
+  Future<void> _showShareTargetPicker({
+    required String title,
+    required String subtitle,
+    required Future<void> Function(DiscoveredDevice device) onDeviceSelected,
+  }) async {
+    if (!mounted) return;
+    final device = await showModalBottomSheet<DiscoveredDevice>(
+      context: context,
+      backgroundColor: ZenTheme.darkCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return Consumer<TransferProvider>(
+          builder: (context, provider, _) {
+            final devices = provider.devices;
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: ZenTheme.darkBorderLight,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    SizedBox(height: 20),
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: ZenTheme.textPrimary,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: ZenTheme.textTertiary,
+                        fontSize: 12,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    SizedBox(height: 16),
+                    if (devices.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        child: Column(
+                          children: [
+                            Text(
+                              'No devices found',
+                              style: TextStyle(
+                                color: ZenTheme.textSecondary,
+                                fontSize: 14,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed: () => provider.scanDevices(),
+                              icon: const Icon(Icons.radar_rounded, size: 18),
+                              label: const Text('Scan for devices'),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      Flexible(
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: devices.length,
+                          itemBuilder: (context, index) {
+                            final device = devices[index];
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: DeviceTile(
+                                device: device,
+                                colorIndex: index,
+                                onTap: () => Navigator.pop(ctx, device),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (device != null && mounted) {
+      await onDeviceSelected(device);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Content sent!')),
+        );
+      }
+    }
   }
 
   Future<void> _initializeApp() async {
@@ -39,6 +204,17 @@ class _HomeScreenState extends State<HomeScreen> {
     } else {
       await provider.initialize(provider.deviceName);
     }
+    // Android share sheet content (if app opened via share)
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      _checkSharedContent();
+      // Also catch shares that arrive while the app is already running:
+      // Kotlin pushes an event on every new SEND intent (onNewIntent), and
+      // this fires the same device-picker flow.
+      ShareService().onNewShare = () {
+        _checkSharedContent();
+      };
+    }
+    _isInitialized = true;
   }
 
   Future<String> _getAutoDeviceName() async {
@@ -106,14 +282,14 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ],
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.swap_horiz_rounded,
                       color: Colors.white,
                       size: 24,
                     ),
                   ),
-                  const SizedBox(width: 14),
-                  const Column(
+                  SizedBox(width: 14),
+                  Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
@@ -137,7 +313,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
             ),
-            const Divider(color: ZenTheme.darkBorder, height: 1),
+            Divider(color: ZenTheme.darkBorder, height: 1),
             const SizedBox(height: 8),
             _buildDrawerItem(
               icon: Icons.home_rounded,
@@ -166,8 +342,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 setState(() => _currentIndex = 2);
               },
             ),
-            const SizedBox(height: 8),
-            const Divider(color: ZenTheme.darkBorder, height: 1),
+            SizedBox(height: 8),
+            Divider(color: ZenTheme.darkBorder, height: 1),
             const SizedBox(height: 8),
             _buildDrawerItem(
               icon: Icons.settings_rounded,
@@ -211,7 +387,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: isActive ? ZenTheme.primaryPurple : ZenTheme.textSecondary,
                   size: 22,
                 ),
-                const SizedBox(width: 14),
+                SizedBox(width: 14),
                 Text(
                   label,
                   style: TextStyle(
@@ -243,14 +419,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Row(
                   children: [
                     IconButton(
-                      icon: const Icon(
+                      icon: Icon(
                         Icons.menu_rounded,
                         color: ZenTheme.textSecondary,
                         size: 24,
                       ),
                       onPressed: () => _scaffoldKey.currentState?.openDrawer(),
                     ),
-                    const SizedBox(width: 4),
+                    SizedBox(width: 4),
                     Container(
                       width: 40,
                       height: 40,
@@ -265,18 +441,18 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ],
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.swap_horiz_rounded,
                         color: Colors.white,
                         size: 22,
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             'ZenTransfer',
                             style: TextStyle(
                               color: ZenTheme.textPrimary,
@@ -289,7 +465,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             provider.isServerRunning
                                 ? provider.deviceName
                                 : 'Starting...',
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: ZenTheme.textTertiary,
                               fontSize: 12,
                             ),
@@ -299,7 +475,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     // Settings icon
                     IconButton(
-                      icon: const Icon(
+                      icon: Icon(
                         Icons.settings_rounded,
                         color: ZenTheme.textTertiary,
                         size: 22,
@@ -336,7 +512,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         if (provider.isScanning)
-                          const SizedBox(
+                          SizedBox(
                             width: 18,
                             height: 18,
                             child: CircularProgressIndicator(
@@ -345,12 +521,12 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           )
                         else
-                          const Icon(
+                          Icon(
                             Icons.radar_rounded,
                             color: ZenTheme.primaryPurple,
                             size: 20,
                           ),
-                        const SizedBox(width: 10),
+                        SizedBox(width: 10),
                         Text(
                           provider.isScanning ? 'Scanning...' : 'Scan for Devices',
                           style: TextStyle(
@@ -370,7 +546,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
             // ── Devices Section ──
             if (provider.devices.isNotEmpty) ...[
-              const SliverToBoxAdapter(
+              SliverToBoxAdapter(
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(20, 28, 20, 14),
                   child: Text(
@@ -434,8 +610,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             color: ZenTheme.primaryPurple.withValues(alpha: 0.4),
                           ),
                         ),
-                        const SizedBox(height: 24),
-                        const Text(
+                        SizedBox(height: 24),
+                        Text(
                           'No devices found',
                           style: TextStyle(
                             color: ZenTheme.textPrimary,
@@ -443,8 +619,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        const Text(
+                        SizedBox(height: 8),
+                        Text(
                           'Make sure both devices are on\nthe same WiFi network',
                           style: TextStyle(
                             color: ZenTheme.textTertiary,
@@ -461,8 +637,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
             // ── Active Transfer ──
             if (provider.activeTransfer != null &&
-                provider.activeTransfer!.status == TransferStatus.transferring) ...[
-              const SliverToBoxAdapter(
+                (provider.activeTransfer!.status == TransferStatus.transferring ||
+                 provider.activeTransfer!.status == TransferStatus.paused)) ...[
+              SliverToBoxAdapter(
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(20, 28, 20, 14),
                   child: Text(
@@ -479,7 +656,9 @@ class _HomeScreenState extends State<HomeScreen> {
               SliverToBoxAdapter(
                 child: TransferCard(
                   transfer: provider.activeTransfer!,
-                  showActions: false,
+                  showActions: true,
+                  onPause: () => provider.pauseTransfer(),
+                  onResume: () => provider.resumeTransfer(),
                 ),
               ),
             ],
@@ -518,8 +697,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: ZenTheme.primaryPurple.withValues(alpha: 0.4),
                   ),
                 ),
-                const SizedBox(height: 20),
-                const Text(
+                SizedBox(height: 20),
+                Text(
                   'No incoming files',
                   style: TextStyle(
                     color: ZenTheme.textPrimary,
@@ -527,8 +706,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 6),
-                const Text(
+                SizedBox(height: 6),
+                Text(
                   'Files from other devices\nwill appear here',
                   style: TextStyle(
                     color: ZenTheme.textTertiary,
@@ -586,8 +765,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: ZenTheme.primaryPurple.withValues(alpha: 0.4),
                   ),
                 ),
-                const SizedBox(height: 20),
-                const Text(
+                SizedBox(height: 20),
+                Text(
                   'No transfers yet',
                   style: TextStyle(
                     color: ZenTheme.textPrimary,
@@ -595,8 +774,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 6),
-                const Text(
+                SizedBox(height: 6),
+                Text(
                   'Your transfer history\nwill appear here',
                   style: TextStyle(
                     color: ZenTheme.textTertiary,
@@ -631,7 +810,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Consumer<TransferProvider>(
       builder: (context, provider, _) {
         return Container(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: ZenTheme.darkSurface,
             border: Border(
               top: BorderSide(color: ZenTheme.darkBorder, width: 0.5),
@@ -701,10 +880,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   size: 22,
                 ),
                 if (isActive) ...[
-                  const SizedBox(width: 8),
+                  SizedBox(width: 8),
                   Text(
                     label,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: ZenTheme.primaryPurple,
                       fontWeight: FontWeight.w600,
                       fontSize: 14,
@@ -719,7 +898,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 top: -4,
                 child: Container(
                   padding: const EdgeInsets.all(4),
-                  decoration: const BoxDecoration(
+                  decoration: BoxDecoration(
                     color: ZenTheme.error,
                     shape: BoxShape.circle,
                   ),
@@ -765,7 +944,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              const SizedBox(height: 20),
+              SizedBox(height: 20),
               // Device info
               Container(
                 width: 64,
@@ -787,19 +966,19 @@ class _HomeScreenState extends State<HomeScreen> {
                   size: 30,
                 ),
               ),
-              const SizedBox(height: 14),
+              SizedBox(height: 14),
               Text(
                 device.name,
-                style: const TextStyle(
+                style: TextStyle(
                   color: ZenTheme.textPrimary,
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              const SizedBox(height: 4),
+              SizedBox(height: 4),
               Text(
                 '${device.platform} • ${device.ip}',
-                style: const TextStyle(
+                style: TextStyle(
                   color: ZenTheme.textTertiary,
                   fontSize: 13,
                 ),
@@ -897,17 +1076,17 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Row(
           children: [
             Icon(icon, color: ZenTheme.primaryPurple, size: 22),
-            const SizedBox(width: 14),
+            SizedBox(width: 14),
             Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 color: ZenTheme.textPrimary,
                 fontSize: 15,
                 fontWeight: FontWeight.w500,
               ),
             ),
-            const Spacer(),
-            const Icon(
+            Spacer(),
+            Icon(
               Icons.chevron_right_rounded,
               color: ZenTheme.textTertiary,
               size: 20,
@@ -943,39 +1122,39 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: ZenTheme.darkCard,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
-          side: const BorderSide(color: ZenTheme.darkBorder),
+          side: BorderSide(color: ZenTheme.darkBorder),
         ),
-        title: const Text(
+        title: Text(
           'Send Text',
           style: TextStyle(color: ZenTheme.textPrimary, fontWeight: FontWeight.w600),
         ),
         content: TextField(
           controller: controller,
           maxLines: 5,
-          style: const TextStyle(color: ZenTheme.textPrimary),
+          style: TextStyle(color: ZenTheme.textPrimary),
           decoration: InputDecoration(
             hintText: 'Enter text to send...',
-            hintStyle: const TextStyle(color: ZenTheme.textTertiary),
+            hintStyle: TextStyle(color: ZenTheme.textTertiary),
             filled: true,
             fillColor: ZenTheme.darkSurface,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: ZenTheme.darkBorder),
+              borderSide: BorderSide(color: ZenTheme.darkBorder),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: ZenTheme.darkBorder),
+              borderSide: BorderSide(color: ZenTheme.darkBorder),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: ZenTheme.primaryPurple, width: 2),
+              borderSide: BorderSide(color: ZenTheme.primaryPurple, width: 2),
             ),
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel', style: TextStyle(color: ZenTheme.textSecondary)),
+            child: Text('Cancel', style: TextStyle(color: ZenTheme.textSecondary)),
           ),
           ElevatedButton(
             onPressed: () async {

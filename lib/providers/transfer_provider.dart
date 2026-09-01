@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../models/transfer_data.dart';
+import '../theme/zen_theme.dart';
 import '../services/local_network_service.dart';
 import '../services/settings_service.dart';
 import '../services/transfer_service.dart';
@@ -30,6 +31,9 @@ class TransferProvider extends ChangeNotifier {
   /// Number of unseen pending downloads (for badge)
   int _pendingDownloadsCount = 0;
 
+  /// Timer for refreshing speed/ETA display
+  Timer? _speedRefreshTimer;
+
   // Getters
   List<DiscoveredDevice> get devices => _devices;
   List<TransferData> get transferHistory => _transferHistory;
@@ -44,11 +48,24 @@ class TransferProvider extends ChangeNotifier {
   bool get autoAccept => _settingsService.autoAccept;
   bool get encryptedTransfers => _settingsService.encryptedTransfers;
   bool get showOnLocalNetwork => _settingsService.showOnLocalNetwork;
+  bool get isLightMode => _settingsService.isLightMode;
 
   TransferProvider() {
     _transferService = TransferService(_networkService);
     _listenToTransfers();
     _listenToIncoming();
+    _startSpeedRefreshTimer();
+  }
+
+  /// Refresh speed/ETA display every second while transferring
+  void _startSpeedRefreshTimer() {
+    _speedRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_activeTransfer != null &&
+          (_activeTransfer!.status == TransferStatus.transferring ||
+           _activeTransfer!.status == TransferStatus.paused)) {
+        notifyListeners(); // trigger UI rebuild with updated speed/eta
+      }
+    });
   }
 
   void _listenToTransfers() {
@@ -62,9 +79,42 @@ class TransferProvider extends ChangeNotifier {
           _transferHistory = _transferHistory.sublist(0, 50);
         }
         _saveHistory();
+      } else if (transfer.status == TransferStatus.transferring ||
+          transfer.status == TransferStatus.paused) {
+        // Update or insert active transfer in history
+        final idx = _transferHistory.indexWhere((t) => t.id == transfer.id);
+        if (idx != -1) {
+          _transferHistory[idx] = transfer;
+        } else {
+          _transferHistory.insert(0, transfer);
+        }
       }
       notifyListeners();
     });
+  }
+
+  /// Pause the active transfer
+  void pauseTransfer() {
+    _transferService.pauseTransfer();
+    if (_activeTransfer != null) {
+      _activeTransfer = _activeTransfer!.copyWith(
+        status: TransferStatus.paused,
+        isPaused: true,
+      );
+      notifyListeners();
+    }
+  }
+
+  /// Resume the active transfer
+  void resumeTransfer() {
+    _transferService.resumeTransfer();
+    if (_activeTransfer != null) {
+      _activeTransfer = _activeTransfer!.copyWith(
+        status: TransferStatus.transferring,
+        isPaused: false,
+      );
+      notifyListeners();
+    }
   }
 
   void _listenToIncoming() {
@@ -297,9 +347,11 @@ class TransferProvider extends ChangeNotifier {
 
     // Load persisted settings
     await _settingsService.init();
+    ZenTheme.isLight = _settingsService.isLightMode;
     debugPrint('Settings loaded: autoAccept=${_settingsService.autoAccept}, '
         'encrypt=${_settingsService.encryptedTransfers}, '
-        'visible=${_settingsService.showOnLocalNetwork}');
+        'visible=${_settingsService.showOnLocalNetwork}, '
+        'lightMode=${_settingsService.isLightMode}');
 
     // Request storage permission on Android
     if (defaultTargetPlatform == TargetPlatform.android) {
@@ -511,8 +563,16 @@ class TransferProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Update light/dark theme
+  Future<void> setLightMode(bool value) async {
+    await _settingsService.setLightMode(value);
+    ZenTheme.isLight = value;
+    notifyListeners();
+  }
+
   @override
   void dispose() {
+    _speedRefreshTimer?.cancel();
     _networkService.stop();
     _transferService.dispose();
     super.dispose();

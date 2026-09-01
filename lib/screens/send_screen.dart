@@ -49,7 +49,7 @@ class _SendScreenState extends State<SendScreen> {
 
   Future<void> _sendFiles(DiscoveredDevice device) async {
     if (_selectedFiles.isEmpty) return;
-    setState(() => _isSending = true);
+    if (mounted) setState(() => _isSending = true);
 
     final provider = context.read<TransferProvider>();
     int sentCount = 0;
@@ -68,7 +68,9 @@ class _SendScreenState extends State<SendScreen> {
       }
     }
 
-    setState(() => _isSending = false);
+    if (mounted) {
+      setState(() => _isSending = false);
+    }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -117,10 +119,10 @@ class _SendScreenState extends State<SendScreen> {
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              const SizedBox(height: 20),
+              SizedBox(height: 20),
               Text(
                 target != null ? 'Send to ${target.name}' : 'Select what to send',
-                style: const TextStyle(
+                style: TextStyle(
                   color: ZenTheme.textPrimary,
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
@@ -195,8 +197,8 @@ class _SendScreenState extends State<SendScreen> {
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-                const SizedBox(height: 20),
-                const Text(
+                SizedBox(height: 20),
+                Text(
                   'Enter Text',
                   style: TextStyle(
                     color: ZenTheme.textPrimary,
@@ -204,34 +206,34 @@ class _SendScreenState extends State<SendScreen> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: 16),
                 TextField(
                   controller: _textController,
                   maxLines: 5,
-                  style: const TextStyle(color: ZenTheme.textPrimary),
+                  style: TextStyle(color: ZenTheme.textPrimary),
                   decoration: InputDecoration(
                     hintText: 'Type or paste your text here...',
-                    hintStyle: const TextStyle(color: ZenTheme.textTertiary),
+                    hintStyle: TextStyle(color: ZenTheme.textTertiary),
                     filled: true,
                     fillColor: ZenTheme.darkSurface,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: ZenTheme.darkBorder),
+                      borderSide: BorderSide(color: ZenTheme.darkBorder),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: ZenTheme.darkBorder),
+                      borderSide: BorderSide(color: ZenTheme.darkBorder),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(
+                      borderSide: BorderSide(
                         color: ZenTheme.primaryPurple,
                         width: 2,
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
@@ -301,23 +303,23 @@ class _SendScreenState extends State<SendScreen> {
               ),
               child: Icon(icon, color: ZenTheme.primaryPurple, size: 22),
             ),
-            const SizedBox(width: 16),
+            SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     label,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: ZenTheme.textPrimary,
                       fontWeight: FontWeight.w600,
                       fontSize: 15,
                     ),
                   ),
-                  const SizedBox(height: 2),
+                  SizedBox(height: 2),
                   Text(
                     subtitle,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: ZenTheme.textTertiary,
                       fontSize: 12,
                     ),
@@ -325,7 +327,7 @@ class _SendScreenState extends State<SendScreen> {
                 ],
               ),
             ),
-            const Icon(
+            Icon(
               Icons.chevron_right_rounded,
               color: ZenTheme.textTertiary,
               size: 20,
@@ -341,9 +343,9 @@ class _SendScreenState extends State<SendScreen> {
     return Scaffold(
       backgroundColor: ZenTheme.darkBg,
       appBar: AppBar(
-        title: const Text('Send'),
+        title: Text('Send'),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
+          icon: Icon(Icons.arrow_back_rounded),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -360,19 +362,19 @@ class _SendScreenState extends State<SendScreen> {
                     color: ZenTheme.primaryPurple,
                     size: 18,
                   ),
-                  const SizedBox(width: 8),
+                  SizedBox(width: 8),
                   Text(
                     '${_selectedFiles.length} file(s) selected',
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: ZenTheme.textPrimary,
                       fontWeight: FontWeight.w600,
                       fontSize: 14,
                     ),
                   ),
-                  const Spacer(),
+                  Spacer(),
                   TextButton(
                     onPressed: () => setState(() => _selectedFiles = []),
-                    child: const Text(
+                    child: Text(
                       'Clear',
                       style: TextStyle(color: ZenTheme.error, fontSize: 13),
                     ),
@@ -400,15 +402,15 @@ class _SendScreenState extends State<SendScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.insert_drive_file_rounded,
                           color: ZenTheme.accentPurple,
                           size: 24,
                         ),
-                        const SizedBox(height: 4),
+                        SizedBox(height: 4),
                         Text(
                           file.name,
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: ZenTheme.textPrimary,
                             fontSize: 10,
                           ),
@@ -422,7 +424,7 @@ class _SendScreenState extends State<SendScreen> {
                 },
               ),
             ),
-            const Divider(color: ZenTheme.darkBorder),
+            Divider(color: ZenTheme.darkBorder),
           ],
 
           // Devices list
@@ -451,8 +453,8 @@ class _SendScreenState extends State<SendScreen> {
                             color: ZenTheme.primaryPurple.withValues(alpha: 0.4),
                           ),
                         ),
-                        const SizedBox(height: 20),
-                        const Text(
+                        SizedBox(height: 20),
+                        Text(
                           'No devices found',
                           style: TextStyle(
                             color: ZenTheme.textPrimary,
@@ -460,7 +462,7 @@ class _SendScreenState extends State<SendScreen> {
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                        const SizedBox(height: 16),
+                        SizedBox(height: 16),
                         InkWell(
                           onTap: () => provider.scanDevices(),
                           borderRadius: BorderRadius.circular(12),
@@ -474,7 +476,7 @@ class _SendScreenState extends State<SendScreen> {
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(color: ZenTheme.darkBorder),
                             ),
-                            child: const Row(
+                            child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(
@@ -534,11 +536,11 @@ class _SendScreenState extends State<SendScreen> {
                 width: double.infinity,
                 child: OutlinedButton.icon(
                   onPressed: _pickFiles,
-                  icon: const Icon(Icons.folder_open_rounded, size: 18),
-                  label: const Text('Select Files'),
+                  icon: Icon(Icons.folder_open_rounded, size: 18),
+                  label: Text('Select Files'),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    side: const BorderSide(color: ZenTheme.darkBorderLight),
+                    side: BorderSide(color: ZenTheme.darkBorderLight),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),

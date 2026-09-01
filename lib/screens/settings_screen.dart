@@ -26,10 +26,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       backgroundColor: ZenTheme.darkBg,
       appBar: AppBar(
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: ZenTheme.textPrimary),
+          icon: Icon(Icons.arrow_back_rounded, color: ZenTheme.textPrimary),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text('Settings'),
+        title: Text('Settings'),
         centerTitle: false,
       ),
       body: ListView(
@@ -41,23 +41,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               TextField(
                 controller: _nameController,
-                style: const TextStyle(color: ZenTheme.textPrimary),
+                style: TextStyle(color: ZenTheme.textPrimary),
                 decoration: InputDecoration(
                   labelText: 'Device Name',
-                  labelStyle: const TextStyle(color: ZenTheme.textSecondary),
+                  labelStyle: TextStyle(color: ZenTheme.textSecondary),
                   filled: true,
                   fillColor: ZenTheme.darkSurface,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: ZenTheme.darkBorder),
+                    borderSide: BorderSide(color: ZenTheme.darkBorder),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: ZenTheme.darkBorder),
+                    borderSide: BorderSide(color: ZenTheme.darkBorder),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(
+                    borderSide: BorderSide(
                       color: ZenTheme.primaryPurple,
                       width: 2,
                     ),
@@ -68,6 +68,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     context.read<TransferProvider>().initialize(value.trim());
                   }
                 },
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // Appearance
+          _buildSection(
+            title: 'APPEARANCE',
+            children: [
+              Consumer<TransferProvider>(
+                builder: (context, provider, _) => _buildSwitchTile(
+                  title: 'Light mode',
+                  subtitle: 'Switch between dark and light theme',
+                  value: provider.isLightMode,
+                  onChanged: (v) => provider.setLightMode(v),
+                ),
               ),
             ],
           ),
@@ -165,14 +181,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       children: [
         Text(
           title,
-          style: const TextStyle(
+          style: TextStyle(
             color: ZenTheme.textTertiary,
             fontSize: 11,
             fontWeight: FontWeight.w700,
             letterSpacing: 1.5,
           ),
         ),
-        const SizedBox(height: 12),
+        SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -202,16 +218,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: ZenTheme.textPrimary,
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-                const SizedBox(height: 2),
+                SizedBox(height: 2),
                 Text(
                   subtitle,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: ZenTheme.textTertiary,
                     fontSize: 12,
                   ),
@@ -240,14 +256,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           Text(
             title,
-            style: const TextStyle(
+            style: TextStyle(
               color: ZenTheme.textPrimary,
               fontSize: 14,
             ),
           ),
           Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               color: ZenTheme.textTertiary,
               fontSize: 13,
             ),

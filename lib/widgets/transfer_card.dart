@@ -11,12 +11,16 @@ import '../utils/file_type_helper.dart';
 class TransferCard extends StatelessWidget {
   final TransferData transfer;
   final VoidCallback? onDownload;
+  final VoidCallback? onPause;
+  final VoidCallback? onResume;
   final bool showActions;
 
   const TransferCard({
     super.key,
     required this.transfer,
     this.onDownload,
+    this.onPause,
+    this.onResume,
     this.showActions = true,
   });
 
@@ -32,6 +36,7 @@ class TransferCard extends StatelessWidget {
     final isActive =
         transfer.status == TransferStatus.transferring ||
         transfer.status == TransferStatus.connecting;
+    final isPaused = transfer.status == TransferStatus.paused;
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
@@ -40,7 +45,7 @@ class TransferCard extends StatelessWidget {
         color: ZenTheme.darkCard,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isActive
+          color: isActive || isPaused
               ? ZenTheme.primaryPurple.withValues(alpha: 0.3)
               : ZenTheme.darkBorder,
         ),
@@ -52,14 +57,14 @@ class TransferCard extends StatelessWidget {
           Row(
             children: [
               _buildTypeIcon(),
-              const SizedBox(width: 12),
+              SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       transfer.fileName ?? transfer.textContent ?? 'Text',
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: ZenTheme.textPrimary,
                         fontWeight: FontWeight.w600,
                         fontSize: 14,
@@ -67,17 +72,17 @@ class TransferCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 3),
+                    SizedBox(height: 3),
                     Row(
                       children: [
                         Text(
                           transfer.senderName,
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: ZenTheme.textSecondary,
                             fontSize: 12,
                           ),
                         ),
-                        const Padding(
+                        Padding(
                           padding: EdgeInsets.symmetric(horizontal: 6),
                           child: Icon(
                             Icons.arrow_forward_rounded,
@@ -87,7 +92,7 @@ class TransferCard extends StatelessWidget {
                         ),
                         Text(
                           transfer.receiverName,
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: ZenTheme.textSecondary,
                             fontSize: 12,
                           ),
@@ -102,35 +107,73 @@ class TransferCard extends StatelessWidget {
           ),
 
           // ── Progress ──
-          if (transfer.status == TransferStatus.transferring &&
+          if ((transfer.status == TransferStatus.transferring ||
+                  transfer.status == TransferStatus.paused) &&
               transfer.fileSize != null &&
               transfer.fileSize! > 0) ...[
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
               child: LinearProgressIndicator(
                 value: transfer.progress,
                 backgroundColor: ZenTheme.darkBorder,
                 valueColor: AlwaysStoppedAnimation<Color>(
-                  ZenTheme.primaryPurple,
+                  isPaused ? ZenTheme.warning : ZenTheme.primaryPurple,
                 ),
                 minHeight: 4,
               ),
             ),
-            const SizedBox(height: 6),
+            SizedBox(height: 6),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
                   '${_formatFileSize(transfer.transferredBytes)} / ${_formatFileSize(transfer.fileSize!)}',
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: ZenTheme.textTertiary,
                     fontSize: 11,
                   ),
                 ),
+                // Speed + ETA display
+                if (transfer.speed != null || transfer.eta != null)
+                  Row(
+                    children: [
+                      if (transfer.speed != null) ...[
+                        Icon(
+                          Icons.speed_rounded,
+                          size: 12,
+                          color: ZenTheme.textTertiary,
+                        ),
+                        SizedBox(width: 3),
+                        Text(
+                          '${TransferService.formatSize(transfer.speed!.toInt())}/s',
+                          style: TextStyle(
+                            color: ZenTheme.textTertiary,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                      if (transfer.speed != null && transfer.eta != null)
+                        Text(
+                          ' · ',
+                          style: TextStyle(
+                            color: ZenTheme.textTertiary,
+                            fontSize: 11,
+                          ),
+                        ),
+                      if (transfer.eta != null)
+                        Text(
+                          _formatEta(transfer.eta!),
+                          style: TextStyle(
+                            color: ZenTheme.textTertiary,
+                            fontSize: 11,
+                          ),
+                        ),
+                    ],
+                  ),
                 Text(
                   '${(transfer.progress * 100).toInt()}%',
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: ZenTheme.primaryPurple,
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
@@ -140,15 +183,49 @@ class TransferCard extends StatelessWidget {
             ),
           ],
 
+          // ── Pause/Resume button ──
+          if (showActions &&
+              (transfer.status == TransferStatus.transferring ||
+                  transfer.status == TransferStatus.paused) &&
+              transfer.fileSize != null &&
+              transfer.fileSize! > 0) ...[
+            SizedBox(height: 10),
+            Row(
+              children: [
+                if (transfer.status == TransferStatus.transferring)
+                  _buildActionButton(
+                    icon: Icons.pause_rounded,
+                    label: 'Pause',
+                    color: ZenTheme.warning,
+                    onTap: onPause ?? () {},
+                  ),
+                if (transfer.status == TransferStatus.paused)
+                  _buildActionButton(
+                    icon: Icons.play_arrow_rounded,
+                    label: 'Resume',
+                    color: ZenTheme.success,
+                    onTap: onResume ?? () {},
+                  ),
+              ],
+            ),
+          ],
+
+          // ── File preview thumbnail (completed files) ──
+          if (isCompleted && _isPreviewable()) ...[
+            SizedBox(height: 10),
+            _buildThumbnail(),
+          ],
+
           // ── File size ──
           if (transfer.type == TransferType.file &&
               transfer.fileSize != null &&
               transfer.fileSize! > 0 &&
-              transfer.status != TransferStatus.transferring) ...[
-            const SizedBox(height: 6),
+              transfer.status != TransferStatus.transferring &&
+              transfer.status != TransferStatus.paused) ...[
+            SizedBox(height: 6),
             Text(
               _formatFileSize(transfer.fileSize!),
-              style: const TextStyle(
+              style: TextStyle(
                 color: ZenTheme.textTertiary,
                 fontSize: 11,
               ),
@@ -157,10 +234,10 @@ class TransferCard extends StatelessWidget {
 
           // ── Error ──
           if (transfer.error != null) ...[
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Text(
               transfer.error!,
-              style: const TextStyle(
+              style: TextStyle(
                 color: ZenTheme.error,
                 fontSize: 12,
               ),
@@ -171,7 +248,7 @@ class TransferCard extends StatelessWidget {
 
           // ── Download button ──
           if (showActions && isDownloadPending) ...[
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
               child: _buildActionButton(
@@ -185,7 +262,7 @@ class TransferCard extends StatelessWidget {
 
           // ── Action buttons ──
           if (showActions && isCompleted) ...[
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             Row(
               children: [
                 _buildActionButton(
@@ -195,7 +272,7 @@ class TransferCard extends StatelessWidget {
                   onTap: () => _openFile(context),
                 ),
                 if (defaultTargetPlatform != TargetPlatform.windows) ...[
-                  const SizedBox(width: 8),
+                  SizedBox(width: 8),
                   _buildActionButton(
                     icon: Icons.share_rounded,
                     label: 'Share',
@@ -203,7 +280,7 @@ class TransferCard extends StatelessWidget {
                     onTap: () => _shareFile(context),
                   ),
                 ],
-                const SizedBox(width: 8),
+                SizedBox(width: 8),
                 _buildActionButton(
                   icon: Icons.folder_open_rounded,
                   label: 'Folder',
@@ -216,6 +293,180 @@ class TransferCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// Check if file can be previewed (images, videos, audio, text)
+  bool _isPreviewable() {
+    if (transfer.filePath == null) return false;
+    final ext = transfer.fileName?.split('.').last.toLowerCase() ?? '';
+    return FileTypeHelper.previewableExtensions.contains(ext);
+  }
+
+  /// Build thumbnail preview for completed files
+  Widget _buildThumbnail() {
+    final filePath = transfer.filePath!;
+    final ext = transfer.fileName?.split('.').last.toLowerCase() ?? '';
+
+    // Image preview
+    if (FileTypeHelper.isImage(ext)) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: SizedBox(
+          height: 120,
+          width: double.infinity,
+          child: Image.file(
+            File(filePath),
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => _buildPlaceholderThumb(),
+          ),
+        ),
+      );
+    }
+
+    // Video preview — show placeholder with play icon
+    if (FileTypeHelper.isVideo(ext)) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          height: 80,
+          width: double.infinity,
+          color: ZenTheme.darkSurface,
+          child: Center(
+            child: Icon(
+              Icons.play_circle_fill_rounded,
+              color: ZenTheme.primaryPurple,
+              size: 40,
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Audio preview — show waveform-style placeholder
+    if (FileTypeHelper.isAudio(ext)) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          height: 60,
+          width: double.infinity,
+          color: ZenTheme.darkSurface,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              Icon(
+                Icons.audio_file_rounded,
+                color: ZenTheme.accentPurple,
+                size: 28,
+              ),
+              SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Audio file',
+                      style: TextStyle(
+                        color: ZenTheme.textPrimary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Row(
+                      children: [
+                        _AudioWaveBar(height: 8),
+                        _AudioWaveBar(height: 14),
+                        _AudioWaveBar(height: 10),
+                        _AudioWaveBar(height: 18),
+                        _AudioWaveBar(height: 6),
+                        _AudioWaveBar(height: 12),
+                        _AudioWaveBar(height: 8),
+                        _AudioWaveBar(height: 16),
+                        _AudioWaveBar(height: 10),
+                        _AudioWaveBar(height: 6),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Text file preview
+    if (FileTypeHelper.isText(ext)) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          height: 80,
+          width: double.infinity,
+          color: ZenTheme.darkSurface,
+          padding: const EdgeInsets.all(12),
+          child: FutureBuilder<String>(
+            future: _readTextPreview(),
+            builder: (_, snapshot) {
+              if (snapshot.hasData) {
+                return Text(
+                  snapshot.data!,
+                  style: TextStyle(
+                    color: ZenTheme.textSecondary,
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                  ),
+                  maxLines: 5,
+                  overflow: TextOverflow.ellipsis,
+                );
+              }
+              return const Center(
+                child: CircularProgressIndicator(strokeWidth: 2),
+              );
+            },
+          ),
+        ),
+      );
+    }
+
+    return _buildPlaceholderThumb();
+  }
+
+  Widget _buildPlaceholderThumb() {
+    return Container(
+      height: 80,
+      width: double.infinity,
+      color: ZenTheme.darkSurface,
+      child: Center(
+        child: Icon(
+          FileTypeHelper.getIcon(transfer.fileName ?? 'unknown'),
+          color: ZenTheme.textTertiary,
+          size: 32,
+        ),
+      ),
+    );
+  }
+
+  Future<String> _readTextPreview() async {
+    try {
+      final file = File(transfer.filePath!);
+      final content = await file.readAsString();
+      return content.length > 300 ? '${content.substring(0, 300)}...' : content;
+    } catch (_) {
+      return '[Could not read file]';
+    }
+  }
+
+  String _formatEta(double seconds) {
+    if (seconds < 60) return '${seconds.toInt()}s left';
+    if (seconds < 3600) {
+      final min = (seconds / 60).floor();
+      final sec = (seconds % 60).toInt();
+      return '${min}m ${sec}s left';
+    }
+    final hr = (seconds / 3600).floor();
+    final min = ((seconds % 3600) / 60).floor();
+    return '${hr}h ${min}m left';
   }
 
   Widget _buildActionButton({
@@ -262,7 +513,6 @@ class TransferCard extends StatelessWidget {
 
     switch (transfer.type) {
       case TransferType.file:
-        // Use FileTypeHelper for file-specific icons
         final fileName = transfer.fileName ?? 'unknown';
         icon = FileTypeHelper.getIcon(fileName);
         color = FileTypeHelper.getColor(fileName);
@@ -318,6 +568,11 @@ class TransferCard extends StatelessWidget {
             ? 'Downloading'
             : 'Sending';
         icon = Icons.sync_rounded;
+        break;
+      case TransferStatus.paused:
+        color = ZenTheme.warning;
+        text = 'Paused';
+        icon = Icons.pause_circle_rounded;
         break;
       case TransferStatus.completed:
         color = ZenTheme.success;
@@ -388,7 +643,6 @@ class TransferCard extends StatelessWidget {
       return;
     }
 
-    // On Windows, open file with default app (share_plus doesn't work well on desktop)
     if (defaultTargetPlatform == TargetPlatform.windows) {
       final result = await OpenFilex.open(filePath);
       if (result.type != ResultType.done && context.mounted) {
@@ -412,5 +666,25 @@ class TransferCard extends StatelessWidget {
         SnackBar(content: Text('Could not open folder: ${result.message}')),
       );
     }
+  }
+}
+
+/// Small audio wave bar widget
+class _AudioWaveBar extends StatelessWidget {
+  final double height;
+
+  const _AudioWaveBar({required this.height});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 3,
+      height: height,
+      margin: const EdgeInsets.symmetric(horizontal: 1.5),
+      decoration: BoxDecoration(
+        color: ZenTheme.accentPurple.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(2),
+      ),
+    );
   }
 }

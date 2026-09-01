@@ -16,7 +16,35 @@ class TransferService {
 
   Stream<TransferData> get transferStream => _transferController.stream;
 
+  /// Pause state for active transfer
+  bool _isPaused = false;
+  Completer<void>? _pauseCompleter;
+
   TransferService(this._networkService);
+
+  /// Pause the active transfer
+  void pauseTransfer() {
+    _isPaused = true;
+    _pauseCompleter = Completer<void>();
+    debugPrint('Transfer paused');
+  }
+
+  /// Resume the active transfer
+  void resumeTransfer() {
+    _isPaused = false;
+    if (_pauseCompleter != null && !_pauseCompleter!.isCompleted) {
+      _pauseCompleter!.complete();
+    }
+    _pauseCompleter = null;
+    debugPrint('Transfer resumed');
+  }
+
+  /// Check if transfer should pause — call between chunks
+  Future<void> _checkPause() async {
+    if (_isPaused && _pauseCompleter != null) {
+      await _pauseCompleter!.future;
+    }
+  }
 
   // ═══════════════════════════════════════════
   //  FILE SEND — Chunked streaming
@@ -58,6 +86,7 @@ class TransferService {
     }
 
     Socket? socket;
+    _isPaused = false;
     try {
       socket = await _networkService.connectToDevice(device);
 
@@ -93,8 +122,10 @@ class TransferService {
         throw Exception('No ACK from receiver');
       }
 
+      final startedAt = DateTime.now();
       _transferController.add(transfer.copyWith(
         status: TransferStatus.transferring,
+        transferStartedAt: startedAt,
       ));
 
       // Stream data in 1MB chunks
@@ -104,24 +135,30 @@ class TransferService {
       if (encrypted && encryptedData != null) {
         // Stream encrypted data
         while (sent < encryptedData.length) {
+          await _checkPause();
           final end = (sent + chunkSize).clamp(0, encryptedData.length);
           final chunk = encryptedData.sublist(sent, end);
           socket.add(chunk);
           sent += chunk.length;
           _transferController.add(transfer.copyWith(
-            status: TransferStatus.transferring,
+            status: _isPaused ? TransferStatus.paused : TransferStatus.transferring,
             transferredBytes: sent,
+            transferStartedAt: startedAt,
+            isPaused: _isPaused,
           ));
         }
       } else {
         // Stream file directly — never loads full file into RAM
         final stream = file.openRead();
         await for (final chunk in stream) {
+          await _checkPause();
           socket.add(chunk);
           sent += chunk.length;
           _transferController.add(transfer.copyWith(
-            status: TransferStatus.transferring,
+            status: _isPaused ? TransferStatus.paused : TransferStatus.transferring,
             transferredBytes: sent,
+            transferStartedAt: startedAt,
+            isPaused: _isPaused,
           ));
         }
       }
@@ -178,6 +215,7 @@ class TransferService {
     }
 
     Socket? socket;
+    _isPaused = false;
     try {
       socket = await _networkService.connectToDevice(device);
 
@@ -209,20 +247,25 @@ class TransferService {
         throw Exception('No ACK from receiver');
       }
 
+      final startedAt = DateTime.now();
       _transferController.add(transfer.copyWith(
         status: TransferStatus.transferring,
+        transferStartedAt: startedAt,
       ));
 
       // Stream in 1MB chunks
       const chunkSize = 1024 * 1024;
       var sent = 0;
       while (sent < dataToSend.length) {
+        await _checkPause();
         final end = (sent + chunkSize).clamp(0, dataToSend.length);
         socket.add(dataToSend.sublist(sent, end));
         sent += end - sent;
         _transferController.add(transfer.copyWith(
-          status: TransferStatus.transferring,
+          status: _isPaused ? TransferStatus.paused : TransferStatus.transferring,
           transferredBytes: sent,
+          transferStartedAt: startedAt,
+          isPaused: _isPaused,
         ));
       }
 

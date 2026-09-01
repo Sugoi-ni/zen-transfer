@@ -47,7 +47,7 @@ class _PairingScreenState extends State<PairingScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Pair Devices'),
+        title: Text('Pair Devices'),
       ),
       body: Center(
         child: SingleChildScrollView(
@@ -97,7 +97,7 @@ class _PairingScreenState extends State<PairingScreen>
                       ? Center(
                           child: Text(
                             _pinCode!,
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: ZenTheme.textPrimary,
                               fontSize: 36,
                               fontWeight: FontWeight.bold,
@@ -105,35 +105,35 @@ class _PairingScreenState extends State<PairingScreen>
                             ),
                           ),
                         )
-                      : const Icon(
+                      : Icon(
                           Icons.lock_rounded,
                           color: ZenTheme.primaryPurple,
                           size: 60,
                         ),
                 ),
               ),
-              const SizedBox(height: 32),
+              SizedBox(height: 32),
               Text(
                 _pinCode != null ? 'Share this PIN' : 'Generate PIN',
-                style: const TextStyle(
+                style: TextStyle(
                   color: ZenTheme.textPrimary,
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               Text(
                 _pinCode != null
                     ? 'Enter this PIN on the other device\nto establish a secure connection'
                     : 'Generate a PIN to pair with\nanother ZenTransfer device',
-                style: const TextStyle(
+                style: TextStyle(
                   color: ZenTheme.textSecondary,
                   fontSize: 14,
                   height: 1.5,
                 ),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 40),
+              SizedBox(height: 40),
 
               // QR Code
               if (_pinCode != null) ...[
@@ -150,15 +150,15 @@ class _PairingScreenState extends State<PairingScreen>
                     backgroundColor: Colors.white,
                   ),
                 ),
-                const SizedBox(height: 16),
-                const Text(
+                SizedBox(height: 16),
+                Text(
                   'Or scan QR code',
                   style: TextStyle(
                     color: ZenTheme.textSecondary,
                     fontSize: 12,
                   ),
                 ),
-                const SizedBox(height: 40),
+                SizedBox(height: 40),
               ],
 
               // Buttons
@@ -182,10 +182,10 @@ class _PairingScreenState extends State<PairingScreen>
                             : Icons.vpn_key_rounded,
                         color: Colors.white,
                       ),
-                      const SizedBox(width: 10),
+                      SizedBox(width: 10),
                       Text(
                         _pinCode != null ? 'Generate New PIN' : 'Generate PIN',
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: Colors.white,
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
@@ -212,7 +212,7 @@ class _PairingScreenState extends State<PairingScreen>
                       borderRadius: BorderRadius.circular(16),
                     ),
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(

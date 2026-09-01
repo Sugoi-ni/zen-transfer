@@ -60,11 +60,11 @@ class DeviceTile extends StatelessWidget {
                 size: 32,
               ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             // Device name
             Text(
               device.name,
-              style: const TextStyle(
+              style: TextStyle(
                 color: ZenTheme.textPrimary,
                 fontWeight: FontWeight.w600,
                 fontSize: 14,
@@ -73,11 +73,11 @@ class DeviceTile extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 4),
+            SizedBox(height: 4),
             // Platform + IP
             Text(
               device.platform,
-              style: const TextStyle(
+              style: TextStyle(
                 color: ZenTheme.textTertiary,
                 fontSize: 11,
               ),
