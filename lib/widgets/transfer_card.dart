@@ -263,7 +263,9 @@ class TransferCard extends StatelessWidget {
           // ── Action buttons ──
           if (showActions && isCompleted) ...[
             SizedBox(height: 12),
-            Row(
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
               children: [
                 _buildActionButton(
                   icon: Icons.open_in_new_rounded,
@@ -271,16 +273,13 @@ class TransferCard extends StatelessWidget {
                   color: ZenTheme.primaryPurple,
                   onTap: () => _openFile(context),
                 ),
-                if (defaultTargetPlatform != TargetPlatform.windows) ...[
-                  SizedBox(width: 8),
+                if (defaultTargetPlatform != TargetPlatform.windows)
                   _buildActionButton(
                     icon: Icons.share_rounded,
                     label: 'Share',
                     color: ZenTheme.accentPurple,
                     onTap: () => _shareFile(context),
                   ),
-                ],
-                SizedBox(width: 8),
                 _buildActionButton(
                   icon: Icons.folder_open_rounded,
                   label: 'Folder',
@@ -479,7 +478,7 @@ class TransferCard extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(12),

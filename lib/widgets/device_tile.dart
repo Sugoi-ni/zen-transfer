@@ -23,7 +23,7 @@ class DeviceTile extends StatelessWidget {
       borderRadius: BorderRadius.circular(20),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: ZenTheme.darkCard,
           borderRadius: BorderRadius.circular(20),
@@ -34,8 +34,8 @@ class DeviceTile extends StatelessWidget {
           children: [
             // Circular device avatar
             Container(
-              width: 72,
-              height: 72,
+              width: 60,
+              height: 60,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: LinearGradient(
@@ -57,29 +57,29 @@ class DeviceTile extends StatelessWidget {
               child: Icon(
                 _getDeviceIcon(),
                 color: Colors.white,
-                size: 32,
+                size: 28,
               ),
             ),
-            SizedBox(height: 12),
+            SizedBox(height: 8),
             // Device name
             Text(
               device.name,
               style: TextStyle(
                 color: ZenTheme.textPrimary,
                 fontWeight: FontWeight.w600,
-                fontSize: 14,
+                fontSize: 13,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
             ),
-            SizedBox(height: 4),
+            SizedBox(height: 2),
             // Platform + IP
             Text(
               device.platform,
               style: TextStyle(
                 color: ZenTheme.textTertiary,
-                fontSize: 11,
+                fontSize: 10,
               ),
               textAlign: TextAlign.center,
             ),
