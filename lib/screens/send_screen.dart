@@ -102,11 +102,12 @@ class _SendScreenState extends State<SendScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: ZenTheme.darkCard,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) => SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,

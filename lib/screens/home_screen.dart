@@ -95,6 +95,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final device = await showModalBottomSheet<DiscoveredDevice>(
       context: context,
       backgroundColor: ZenTheme.darkCard,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -103,12 +104,16 @@ class _HomeScreenState extends State<HomeScreen> {
           builder: (context, provider, _) {
             final devices = provider.devices;
             return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.85,
+                ),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                     Container(
                       width: 36,
                       height: 4,
@@ -176,7 +181,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           },
                         ),
                       ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             );
@@ -927,46 +933,52 @@ class _HomeScreenState extends State<HomeScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: ZenTheme.darkCard,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: ZenTheme.darkBorderLight,
-                  borderRadius: BorderRadius.circular(2),
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: ZenTheme.darkBorderLight,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-              SizedBox(height: 20),
+              const SizedBox(height: 20),
               // Device info
-              Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  gradient: ZenTheme.deviceGradient(0),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: ZenTheme.deviceColors[0].withValues(alpha: 0.3),
-                      blurRadius: 16,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Icon(
-                  _getDeviceIcon(device.platform),
-                  color: Colors.white,
-                  size: 30,
+              Center(
+                child: Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    gradient: ZenTheme.deviceGradient(0),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: ZenTheme.deviceColors[0].withValues(alpha: 0.3),
+                        blurRadius: 16,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    _getDeviceIcon(device.platform),
+                    color: Colors.white,
+                    size: 30,
+                  ),
                 ),
               ),
-              SizedBox(height: 14),
+              const SizedBox(height: 14),
               Text(
                 device.name,
                 style: TextStyle(
@@ -974,14 +986,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
+                textAlign: TextAlign.center,
               ),
-              SizedBox(height: 4),
+              const SizedBox(height: 4),
               Text(
                 '${device.platform} • ${device.ip}',
                 style: TextStyle(
                   color: ZenTheme.textTertiary,
                   fontSize: 13,
                 ),
+                textAlign: TextAlign.center,
               ),
               const SizedBox(height: 28),
               // Action buttons
