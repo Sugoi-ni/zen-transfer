@@ -7,12 +7,19 @@ import '../services/local_network_service.dart';
 import '../services/settings_service.dart';
 import '../services/transfer_service.dart';
 import '../services/clipboard_service.dart';
+import '../services/clipboard_sync_service.dart';
+import '../services/notification_mirror_service.dart';
+import 'package:local_notifier/local_notifier.dart';
 
 class TransferProvider extends ChangeNotifier {
   final LocalNetworkService _networkService = LocalNetworkService();
   final ClipboardService _clipboardService = ClipboardService();
   final SettingsService _settingsService = SettingsService();
   late TransferService _transferService;
+  final ClipboardSyncService _clipboardSyncService = ClipboardSyncService();
+  final NotificationMirrorService _notificationMirrorService =
+      NotificationMirrorService();
+  StreamSubscription<Map<String, dynamic>>? _notifSub;
 
   List<DiscoveredDevice> _devices = [];
   List<TransferData> _transferHistory = [];
@@ -54,6 +61,8 @@ class TransferProvider extends ChangeNotifier {
   bool get autoAccept => _settingsService.autoAccept;
   bool get encryptedTransfers => _settingsService.encryptedTransfers;
   bool get showOnLocalNetwork => _settingsService.showOnLocalNetwork;
+  bool get notificationMirroring => _settingsService.notificationMirroring;
+  bool get clipboardSync => _settingsService.clipboardSync;
   SettingsService get settingsService => _settingsService;
 
   TransferProvider() {
@@ -310,23 +319,100 @@ class TransferProvider extends ChangeNotifier {
     }
   }
 
-  /// Handle incoming text — auto-copy to clipboard
+  /// Handle incoming text — auto-copy to clipboard or show notification toast
   void _handleIncomingText(IncomingTransfer incoming) async {
     if (incoming.status == 'completed' && incoming.textContent != null) {
-      await _clipboardService.copyText(incoming.textContent!);
+      final text = incoming.textContent!;
 
-      _transferHistory.insert(0, TransferData(
-        id: 'txt_${DateTime.now().millisecondsSinceEpoch}',
-        senderName: incoming.senderName,
-        receiverName: _deviceName,
-        type: TransferType.text,
-        status: TransferStatus.completed,
-        textContent: incoming.textContent,
-        fileSize: utf8.encode(incoming.textContent!).length,
-        transferredBytes: utf8.encode(incoming.textContent!).length,
-        mode: ConnectionMode.local,
-      ));
+      // Check if this is a mirrored notification (JSON with type == 'notification')
+      Map<String, dynamic>? notif;
+      try {
+        final decoded = jsonDecode(text);
+        if (decoded is Map<String, dynamic> && decoded['type'] == 'notification') {
+          notif = decoded;
+        }
+      } catch (_) {
+        // Not JSON — treat as regular text
+      }
+
+      if (notif != null && defaultTargetPlatform == TargetPlatform.windows) {
+        // Show toast via local_notifier instead of polluting clipboard
+        try {
+          if (!_localNotifierInitialized) {
+            // ignore: avoid_dynamic_calls
+            await _initLocalNotifier();
+          }
+          _showNotificationToast(
+            notif['title'] as String? ?? 'Notification',
+            notif['text'] as String? ?? '',
+          );
+        } catch (e) {
+          debugPrint('local_notifier error: $e');
+        }
+
+        // Add to history as a notification (no clipboard copy)
+        _transferHistory.insert(0, TransferData(
+          id: 'txt_${DateTime.now().millisecondsSinceEpoch}',
+          senderName: incoming.senderName,
+          receiverName: _deviceName,
+          type: TransferType.text,
+          status: TransferStatus.completed,
+          textContent: '[Notification] ${notif['title'] ?? ''}: ${notif['text'] ?? ''}',
+          fileSize: utf8.encode(text).length,
+          transferredBytes: utf8.encode(text).length,
+          mode: ConnectionMode.local,
+        ));
+      } else {
+        // Regular text — copy to clipboard as before
+        await _clipboardService.copyText(text);
+
+        // Echo suppression: mark as "seen" so the clipboard poller doesn't
+        // immediately send this PC-originated text back to the PC.
+        _lastSentClipboard = text;
+
+        _transferHistory.insert(0, TransferData(
+          id: 'txt_${DateTime.now().millisecondsSinceEpoch}',
+          senderName: incoming.senderName,
+          receiverName: _deviceName,
+          type: TransferType.text,
+          status: TransferStatus.completed,
+          textContent: text,
+          fileSize: utf8.encode(text).length,
+          transferredBytes: utf8.encode(text).length,
+          mode: ConnectionMode.local,
+        ));
+      }
       _saveHistory();
+    }
+  }
+
+  // -- local_notifier for Windows toast notifications --
+
+  bool _localNotifierInitialized = false;
+
+  Future<void> _initLocalNotifier() async {
+    if (defaultTargetPlatform != TargetPlatform.windows) return;
+    try {
+      await localNotifier.setup(
+        appName: 'ZenTransfer',
+        shortcutPolicy: ShortcutPolicy.requireCreate,
+      );
+      _localNotifierInitialized = true;
+    } catch (e) {
+      debugPrint('local_notifier init failed: $e');
+    }
+  }
+
+  void _showNotificationToast(String title, String body) {
+    if (defaultTargetPlatform != TargetPlatform.windows) return;
+    try {
+      final notification = LocalNotification(
+        title: title,
+        body: body,
+      );
+      notification.show();
+    } catch (e) {
+      debugPrint('Toast show error: $e');
     }
   }
 
@@ -465,6 +551,10 @@ class TransferProvider extends ChangeNotifier {
     debugPrint('Settings loaded: autoAccept=${_settingsService.autoAccept}, '
         'encrypt=${_settingsService.encryptedTransfers}, '
         'visible=${_settingsService.showOnLocalNetwork}');
+
+    // Start clipboard sync + notification mirroring
+    _startClipboardSync();
+    _setupNotificationMirroring();
 
     // Request storage permission on Android
     if (defaultTargetPlatform == TargetPlatform.android) {
@@ -769,10 +859,118 @@ class TransferProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Update notification mirroring setting
+  Future<void> setNotificationMirroring(bool value) async {
+    await _settingsService.setNotificationMirroring(value);
+    notifyListeners();
+  }
+
+  /// Update clipboard sync setting
+  Future<void> setClipboardSync(bool value) async {
+    await _settingsService.setClipboardSync(value);
+
+    // Apply live: start/stop the clipboard poller without app restart
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      if (value) {
+        _startClipboardSync();
+      } else {
+        _clipboardSyncService.stop();
+        debugPrint('Clipboard sync stopped');
+      }
+    }
+
+    notifyListeners();
+  }
+
+  // ---- Clipboard Sync (phone → PC) ----
+
+  /// Start polling clipboard for changes on Android (phone side).
+  void _startClipboardSync() {
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    if (!_settingsService.clipboardSync) return;
+
+    _clipboardSyncService.start(
+      onText: (text) async => _sendClipboardText(text),
+    );
+    debugPrint('Clipboard sync started');
+  }
+
+  /// Send changed clipboard text to the first discovered PC.
+  String? _lastSentClipboard;
+
+  Future<void> _sendClipboardText(String text) async {
+    // Deduplicate: skip if same as last sent
+    if (text == _lastSentClipboard) return;
+    _lastSentClipboard = text;
+
+    if (_devices.isEmpty) {
+      debugPrint('Clipboard sync: no devices found, skipping');
+      return;
+    }
+
+    try {
+      await _transferService.sendText(
+        _devices.first,
+        text,
+        senderName: _deviceName,
+      );
+      debugPrint('Clipboard text sent to ${_devices.first.name}');
+    } catch (e) {
+      debugPrint('Clipboard sync send error: $e');
+    }
+  }
+
+  // ---- Notification Mirroring (phone → PC) ----
+
+  /// Set up the notification mirror stream.
+  void _setupNotificationMirroring() {
+    _notifSub = _notificationMirrorService.events.listen((notif) {
+      if (!_settingsService.notificationMirroring) return;
+
+      final title = notif['title'] as String? ?? '';
+      final text = notif['text'] as String? ?? '';
+      final pkg = notif['package'] as String? ?? '';
+      _sendNotificationToPC(title, text, pkg);
+    });
+    debugPrint('Notification mirroring listener attached');
+  }
+
+  /// Send a mirrored notification to the first discovered PC as JSON text.
+  Future<void> _sendNotificationToPC(
+    String title,
+    String text,
+    String package,
+  ) async {
+    if (_devices.isEmpty) {
+      debugPrint('Notification mirror: no devices found, skipping');
+      return;
+    }
+
+    final payload = jsonEncode({
+      'type': 'notification',
+      'title': title,
+      'text': text,
+      'package': package,
+    });
+
+    try {
+      await _transferService.sendText(
+        _devices.first,
+        payload,
+        senderName: _deviceName,
+      );
+      debugPrint('Notification mirrored to ${_devices.first.name}');
+    } catch (e) {
+      debugPrint('Notification mirror send error: $e');
+    }
+  }
+
   @override
   void dispose() {
     _speedRefreshTimer?.cancel();
     _stuckTransferTimer?.cancel();
+    _clipboardSyncService.stop();
+    _notifSub?.cancel();
     _networkService.stop();
     _transferService.dispose();
     super.dispose();

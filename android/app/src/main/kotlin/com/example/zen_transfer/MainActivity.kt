@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.provider.OpenableColumns
 import android.provider.Settings
 import android.util.Base64
+import androidx.core.app.NotificationManagerCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -25,11 +26,14 @@ class MainActivity : FlutterActivity() {
     private val CLIPBOARD_CHANNEL = "com.zen.transfer/clipboard"
     private val SHARE_CHANNEL = "com.zen.transfer/share"
     private val SHARE_EVENT_CHANNEL = "com.zen.transfer/share_events"
+    private val MIRRORING_CHANNEL = "com.zen.transfer/mirroring"
+    private val NOTIFICATION_EVENT_CHANNEL = "com.zen.transfer/notification_events"
 
     private var sharedText: String? = null
     private var sharedUris: MutableList<Uri>? = null
 
     private var shareEventSink: EventChannel.EventSink? = null
+    private var notificationForwarder: ((String, String?, String?) -> Unit)? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -46,6 +50,47 @@ class MainActivity : FlutterActivity() {
                 }
             })
 
+        // Notification events channel — streams notification data from NotificationBus to Dart
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, NOTIFICATION_EVENT_CHANNEL)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    val forwarder = { pkg: String, title: String?, text: String? ->
+                        val map = HashMap<String, String?>()
+                        map["package"] = pkg
+                        map["title"] = title
+                        map["text"] = text
+                        events?.success(map)
+                        Unit
+                    }
+                    notificationForwarder = forwarder
+                    NotificationBus.add(forwarder)
+                }
+                override fun onCancel(arguments: Any?) {
+                    notificationForwarder?.let { NotificationBus.remove(it) }
+                    notificationForwarder = null
+                }
+            })
+
+        // Mirroring channel — permission check + service status + debug emit
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, MIRRORING_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "requestPermission" -> {
+                        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                        result.success(true)
+                    }
+                    "isServiceConnected" -> {
+                        val enabled = NotificationManagerCompat.getEnabledListenerPackages(this)
+                            .contains(packageName)
+                        result.success(enabled)
+                    }
+                    "testEmit" -> {
+                        NotificationBus.emit("com.example.zen_transfer", "Test", "Mirroring works")
+                        result.success(true)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
 
         // Device name channel
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DEVICE_CHANNEL)

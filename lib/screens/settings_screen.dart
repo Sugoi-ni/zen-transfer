@@ -111,6 +111,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       value: provider.showOnLocalNetwork,
                       onChanged: (v) => provider.setShowOnLocalNetwork(v),
                     ),
+                    _buildSwitchTile(
+                      title: 'Mirror notifications to PC',
+                      subtitle: 'Send phone notifications to connected PC',
+                      value: provider.notificationMirroring,
+                      onChanged: provider.setNotificationMirroring,
+                    ),
+                    _buildSwitchTile(
+                      title: 'Clipboard sync',
+                      subtitle: 'Share clipboard with PC on copy',
+                      value: provider.clipboardSync,
+                      onChanged: (v) => provider.setClipboardSync(v),
+                    ),
                     if (Platform.isWindows)
                       _buildSwitchTile(
                         title: 'Start with Windows',

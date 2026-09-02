@@ -7,6 +7,8 @@ class SettingsService {
   static const _keyEncrypt = 'encrypted_transfers';
   static const _keyShowOnNetwork = 'show_on_local_network';
   static const _keyFavorites = 'favorite_device_ids';
+  static const _keyClipboardSync = 'clipboard_sync';
+  static const _keyNotifMirror = 'notif_mirror';
 
   late SharedPreferences _prefs;
 
@@ -14,6 +16,8 @@ class SettingsService {
   bool encryptedTransfers = true;
   bool showOnLocalNetwork = true;
   List<String> favoriteDeviceIds = [];
+  bool clipboardSync = false;
+  bool notificationMirroring = false;
 
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
@@ -21,6 +25,8 @@ class SettingsService {
     encryptedTransfers = _prefs.getBool(_keyEncrypt) ?? true;
     showOnLocalNetwork = _prefs.getBool(_keyShowOnNetwork) ?? true;
     favoriteDeviceIds = _prefs.getStringList(_keyFavorites) ?? [];
+    clipboardSync = _prefs.getBool(_keyClipboardSync) ?? false;
+    notificationMirroring = _prefs.getBool(_keyNotifMirror) ?? false;
   }
 
   bool isFavorite(String id) => favoriteDeviceIds.contains(id);
@@ -47,6 +53,16 @@ class SettingsService {
   Future<void> setShowOnLocalNetwork(bool value) async {
     showOnLocalNetwork = value;
     await _prefs.setBool(_keyShowOnNetwork, value);
+  }
+
+  Future<void> setClipboardSync(bool value) async {
+    clipboardSync = value;
+    await _prefs.setBool(_keyClipboardSync, value);
+  }
+
+  Future<void> setNotificationMirroring(bool value) async {
+    notificationMirroring = value;
+    await _prefs.setBool(_keyNotifMirror, value);
   }
 
   // -- Autostart (Windows only, via registry) --

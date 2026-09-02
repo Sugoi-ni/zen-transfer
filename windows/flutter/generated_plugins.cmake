@@ -4,6 +4,7 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   connectivity_plus
+  local_notifier
   permission_handler_windows
   screen_retriever_windows
   share_plus
