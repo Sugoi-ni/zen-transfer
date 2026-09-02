@@ -459,7 +459,7 @@ class _SendScreenState extends State<SendScreen> {
                     if (!mounted) return;
                     final provider = context.read<TransferProvider>();
                     await provider.sendClipboardToDevice(device);
-                    if (mounted) {
+                    if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('Clipboard sent!')),
                       );

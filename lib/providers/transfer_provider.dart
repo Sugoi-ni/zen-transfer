@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../models/transfer_data.dart';
-import '../theme/zen_theme.dart';
 import '../services/local_network_service.dart';
 import '../services/settings_service.dart';
 import '../services/transfer_service.dart';

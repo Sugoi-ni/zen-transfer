@@ -1235,7 +1235,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         }
                       }
                       if (mounted) {
-                        Navigator.pop(ctx);
+                        if (ctx.mounted) Navigator.pop(ctx);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(sentCount > 0 ? 'Sent $sentCount file(s)' : 'Failed to send'),

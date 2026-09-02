@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'package:image/image.dart' as img;
 
+// ignore_for_file: avoid_print
+
 void main() {
   // Create logo at multiple sizes
   final sizes = {
@@ -78,7 +80,6 @@ void _drawTransferArrows(img.Image image, int size) {
   final arrowHeight = 28 * scale;
   final headSize = 50 * scale;
   final gap = 40 * scale;
-  final strokeWidth = 12 * scale;
 
   // Colors
   final purple = img.ColorRgb8(0x9b, 0x59, 0xb6);
