@@ -17,10 +17,12 @@ void main() {
     frames.add(img.encodePng(resized));
   }
 
-  // Write ICO file
+  // Write ICO file — also save as tray icon for release builds
   final icoBytes = _buildIco(frames, sizes);
   File('windows/runner/resources/app_icon.ico').writeAsBytesSync(icoBytes);
+  File('assets/icons/icon_48.ico').writeAsBytesSync(icoBytes);
   print('Created: app_icon.ico (${icoBytes.length} bytes, ${sizes.length} frames)');
+  print('Created: icon_48.ico (${icoBytes.length} bytes, multi-size)');
 }
 
 /// Minimal ICO container: 6-byte header + 16-byte directory entries + PNG data.
