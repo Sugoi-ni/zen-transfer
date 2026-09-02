@@ -56,6 +56,9 @@ dependencies:
   window_manager: ^0.4.3
   tray_manager: ^0.5.0
 
+  # Windows toast notifications for mirrored phone notifications (Faz 2)
+  local_notifier: ^0.1.6
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
