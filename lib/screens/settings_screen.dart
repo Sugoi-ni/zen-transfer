@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../theme/zen_theme.dart';
@@ -86,6 +88,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       value: provider.autoAccept,
                       onChanged: (v) => provider.setAutoAccept(v),
                     ),
+                    // Auto-accept helper text
+                    Padding(
+                      padding: const EdgeInsets.only(left: 2, top: 2, bottom: 6),
+                      child: Text(
+                        'Only auto-accepts from favorite devices',
+                        style: TextStyle(
+                          color: ZenTheme.textTertiary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
                     _buildSwitchTile(
                       title: 'Encrypt transfers',
                       subtitle: 'Use AES-256 encryption for all transfers',
@@ -98,6 +111,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       value: provider.showOnLocalNetwork,
                       onChanged: (v) => provider.setShowOnLocalNetwork(v),
                     ),
+                    if (Platform.isWindows)
+                      _buildSwitchTile(
+                        title: 'Start with Windows',
+                        subtitle: 'Launch minimized to tray when you log in',
+                        value: provider.autoStart,
+                        onChanged: (v) => provider.setAutoStart(v),
+                      ),
                   ],
                 ),
               ),

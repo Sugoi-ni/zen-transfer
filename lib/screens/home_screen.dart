@@ -572,12 +572,49 @@ class _HomeScreenState extends State<HomeScreen> {
                 sliver: SliverList(
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
+                      final device = provider.devices[index];
+                      final isFav = provider.isFavorite(device.id);
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 8),
-                        child: DeviceTile(
-                          device: provider.devices[index],
-                          colorIndex: index,
-                          onTap: () => _selectDevice(provider.devices[index]),
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            DeviceTile(
+                              device: device,
+                              colorIndex: index,
+                              onTap: () => _selectDevice(device),
+                            ),
+                            Positioned(
+                              right: 8,
+                              top: 4,
+                              child: GestureDetector(
+                                onTap: () async {
+                                  final messenger = ScaffoldMessenger.of(context);
+                                  await provider.toggleFavorite(device.id);
+                                  if (mounted) {
+                                    final nowFav = provider.isFavorite(device.id);
+                                    messenger.showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          nowFav
+                                              ? 'Added to favorites'
+                                              : 'Removed from favorites',
+                                        ),
+                                        duration: const Duration(seconds: 1),
+                                      ),
+                                    );
+                                  }
+                                },
+                                child: Icon(
+                                  Icons.star,
+                                  color: isFav
+                                      ? Colors.amber
+                                      : ZenTheme.textTertiary.withValues(alpha: 0.3),
+                                  size: 22,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       );
                     },
@@ -797,9 +834,47 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.symmetric(vertical: 16),
           itemCount: provider.transferHistory.length,
           itemBuilder: (context, index) {
-            return TransferCard(
-              transfer: provider.transferHistory[index],
-              showActions: false,
+            final transfer = provider.transferHistory[index];
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TransferCard(
+                  transfer: transfer,
+                  showActions: false,
+                ),
+                if (transfer.status == TransferStatus.failed &&
+                    transfer.filePath != null &&
+                    transfer.type == TransferType.file)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextButton.icon(
+                            onPressed: () async {
+                              final messenger = ScaffoldMessenger.of(context);
+                              await provider.retryTransfer(transfer);
+                              if (mounted) {
+                                messenger.showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Retrying transfer...'),
+                                    duration: Duration(seconds: 1),
+                                  ),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.refresh_rounded, size: 18),
+                            label: const Text('Retry'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: ZenTheme.primaryPurple,
+                              alignment: Alignment.centerLeft,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
             );
           },
         );

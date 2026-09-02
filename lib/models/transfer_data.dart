@@ -21,6 +21,7 @@ class TransferData {
   final String? error;
   final DateTime? transferStartedAt;
   final bool isPaused;
+  final String? checksum;
 
   TransferData({
     required this.id,
@@ -39,6 +40,7 @@ class TransferData {
     this.error,
     this.transferStartedAt,
     this.isPaused = false,
+    this.checksum,
   }) : timestamp = timestamp ?? DateTime.now();
 
   double get progress =>
@@ -67,6 +69,7 @@ class TransferData {
     String? filePath,
     DateTime? transferStartedAt,
     bool? isPaused,
+    String? checksum,
   }) {
     return TransferData(
       id: id,
@@ -85,6 +88,7 @@ class TransferData {
       error: error,
       transferStartedAt: transferStartedAt ?? this.transferStartedAt,
       isPaused: isPaused ?? this.isPaused,
+      checksum: checksum ?? this.checksum,
     );
   }
 
@@ -103,6 +107,7 @@ class TransferData {
     'mode': mode.name,
     'encrypted': encrypted,
     'transferStartedAt': transferStartedAt?.toIso8601String(),
+    'checksum': checksum,
   };
 
   factory TransferData.fromJson(Map<String, dynamic> json) {
@@ -123,6 +128,7 @@ class TransferData {
       transferStartedAt: json['transferStartedAt'] != null
           ? DateTime.parse(json['transferStartedAt'])
           : null,
+      checksum: json['checksum'] as String?,
     );
   }
 }

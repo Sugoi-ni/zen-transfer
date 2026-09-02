@@ -54,6 +54,7 @@ class TransferProvider extends ChangeNotifier {
   bool get autoAccept => _settingsService.autoAccept;
   bool get encryptedTransfers => _settingsService.encryptedTransfers;
   bool get showOnLocalNetwork => _settingsService.showOnLocalNetwork;
+  SettingsService get settingsService => _settingsService;
 
   TransferProvider() {
     _transferService = TransferService(_networkService);
@@ -250,8 +251,9 @@ class TransferProvider extends ChangeNotifier {
       }
 
       // Auto-accept: save immediately without waiting for user tap
-      if (_settingsService.autoAccept) {
-        debugPrint('Auto-accept enabled — saving file directly');
+      // Only auto-accept if autoAccept is on AND sender is a favorite device
+      if (_settingsService.autoAccept && _isSenderFavorite(incoming.senderName)) {
+        debugPrint('Auto-accept enabled — saving file directly (favorite device)');
         // Fire and forget — downloadFile updates transfer in-place
         downloadFile(transferId);
       } else {
@@ -279,6 +281,32 @@ class TransferProvider extends ChangeNotifier {
           ));
         }
       }
+    } else if (incoming.status == 'checksum_mismatch') {
+      // Integrity check failed on receiver — discard data, surface as failed
+      final transferId = _incomingToTransferId[incoming.id] ?? 'inc_${incoming.id}';
+      _incomingToTransferId[incoming.id] = transferId;
+      _pendingDownloads.remove(transferId);
+
+      final idx = _transferHistory.indexWhere((t) => t.id == transferId);
+      if (idx != -1) {
+        _transferHistory[idx] = _transferHistory[idx].copyWith(
+          status: TransferStatus.failed,
+          error: 'Checksum mismatch — data corrupted in transit',
+        );
+      } else {
+        _transferHistory.insert(0, TransferData(
+          id: transferId,
+          senderName: incoming.senderName,
+          receiverName: _deviceName,
+          type: TransferType.file,
+          status: TransferStatus.failed,
+          fileName: incoming.fileName,
+          fileSize: incoming.fileSize,
+          mode: ConnectionMode.local,
+          error: 'Checksum mismatch — data corrupted in transit',
+        ));
+      }
+      _saveHistory();
     }
   }
 
@@ -433,6 +461,7 @@ class TransferProvider extends ChangeNotifier {
 
     // Load persisted settings
     await _settingsService.init();
+    await _settingsService.readAutoStart();
     debugPrint('Settings loaded: autoAccept=${_settingsService.autoAccept}, '
         'encrypt=${_settingsService.encryptedTransfers}, '
         'visible=${_settingsService.showOnLocalNetwork}');
@@ -609,6 +638,81 @@ class TransferProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Check if sender name matches any favorite device's name
+  bool _isSenderFavorite(String senderName) {
+    // Match by sender name against discovered devices that are favorites
+    for (final device in _devices) {
+      if (_settingsService.isFavorite(device.id) &&
+          device.name.toLowerCase() == senderName.toLowerCase()) {
+        return true;
+      }
+    }
+    // Fallback: senderName itself might be stored as a device id
+    return _settingsService.isFavorite(senderName);
+  }
+
+  /// Retry a failed transfer (re-sends the file)
+  Future<void> retryTransfer(TransferData transfer) async {
+    if (transfer.status != TransferStatus.failed || transfer.filePath == null) {
+      debugPrint('Cannot retry: status=${transfer.status}, filePath=${transfer.filePath}');
+      return;
+    }
+    debugPrint('Retrying transfer: ${transfer.fileName} → ${transfer.senderName}');
+
+    // Find the target device by name from discovered devices
+    DiscoveredDevice? targetDevice;
+    for (final device in _devices) {
+      if (device.name.toLowerCase() == transfer.senderName.toLowerCase()) {
+        targetDevice = device;
+        break;
+      }
+    }
+
+    // Reset the transfer in history to show it's active again
+    final idx = _transferHistory.indexWhere((t) => t.id == transfer.id);
+    if (idx != -1) {
+      _transferHistory[idx] = _transferHistory[idx].copyWith(
+        status: TransferStatus.pending,
+        error: null,
+        transferredBytes: 0,
+      );
+      notifyListeners();
+    }
+
+    if (targetDevice == null) {
+      debugPrint('Cannot retry: device "${transfer.senderName}" not found in discovered devices');
+      final i = _transferHistory.indexWhere((t) => t.id == transfer.id);
+      if (i != -1) {
+        _transferHistory[i] = _transferHistory[i].copyWith(
+          status: TransferStatus.failed,
+          error: 'Device "${transfer.senderName}" not found on network',
+        );
+      }
+      notifyListeners();
+      return;
+    }
+
+    // Re-send using the same file path with current encryption setting
+    try {
+      await _transferService.sendFile(
+        targetDevice,
+        transfer.filePath!,
+        senderName: _deviceName,
+        encrypted: _settingsService.encryptedTransfers,
+      );
+    } catch (e) {
+      debugPrint('Retry send failed: $e');
+      final i = _transferHistory.indexWhere((t) => t.id == transfer.id);
+      if (i != -1) {
+        _transferHistory[i] = _transferHistory[i].copyWith(
+          status: TransferStatus.failed,
+          error: e.toString(),
+        );
+      }
+      notifyListeners();
+    }
+  }
+
   // ---- Settings ----
 
   /// Update auto-accept setting
@@ -616,6 +720,24 @@ class TransferProvider extends ChangeNotifier {
     await _settingsService.setAutoAccept(value);
     notifyListeners();
   }
+
+  /// Toggle favorite status for a device
+  Future<void> toggleFavorite(String deviceId) async {
+    await _settingsService.toggleFavorite(deviceId);
+    notifyListeners();
+  }
+
+  /// Check if a device is favorited
+  bool isFavorite(String deviceId) => _settingsService.isFavorite(deviceId);
+
+  /// Update autostart setting (Windows: HKCU Run registry key)
+  Future<void> setAutoStart(bool value) async {
+    await _settingsService.setAutoStart(value);
+    notifyListeners();
+  }
+
+  /// Whether the app is registered to start with Windows
+  bool get autoStart => _settingsService.autoStart;
 
   /// Update encryption setting
   Future<void> setEncryptedTransfers(bool value) async {

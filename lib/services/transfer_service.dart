@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:archive/archive.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/transfer_data.dart';
@@ -79,6 +80,10 @@ class TransferService {
 
     _transferController.add(transfer);
 
+    // Compute sha256 checksum of original plain bytes (before encryption)
+    final originalBytes = await file.readAsBytes();
+    final fileChecksum = sha256.convert(originalBytes).toString();
+
     EncryptionService? encService;
     if (encrypted) {
       encService = EncryptionService();
@@ -90,17 +95,16 @@ class TransferService {
     try {
       socket = await _networkService.connectToDevice(device);
 
-      // For encryption, we need to read the full file, encrypt, then send
+      // For encryption, encrypt the pre-read plain bytes
       Uint8List? encryptedData;
       int sendSize = fileSize;
       if (encrypted && encService != null) {
-        final plainBytes = await file.readAsBytes();
-        encryptedData = encService.encryptData(plainBytes);
+        encryptedData = encService.encryptData(originalBytes);
         sendSize = encryptedData.length;
         debugPrint('File encrypted: $fileSize -> $sendSize bytes');
       }
 
-      // Send file header
+      // Send file header (includes checksum for receiver verification)
       final header = jsonEncode({
         'type': 'file_header',
         'fileName': name,
@@ -108,6 +112,7 @@ class TransferService {
         'originalSize': fileSize,
         'senderName': sender,
         'encrypted': encrypted,
+        'checksum': fileChecksum,
         if (encrypted) 'encKey': encService?.keyBase64,
         if (encrypted) 'encIv': encService?.ivBase64,
       });
@@ -148,12 +153,13 @@ class TransferService {
           ));
         }
       } else {
-        // Stream file directly — never loads full file into RAM
-        final stream = file.openRead();
-        await for (final chunk in stream) {
+        // Stream original bytes in 1MB chunks
+        const chunkSize = 1024 * 1024;
+        while (sent < originalBytes.length) {
           await _checkPause();
-          socket.add(chunk);
-          sent += chunk.length;
+          final end = (sent + chunkSize).clamp(0, originalBytes.length);
+          socket.add(originalBytes.sublist(sent, end));
+          sent += end - sent;
           _transferController.add(transfer.copyWith(
             status: _isPaused ? TransferStatus.paused : TransferStatus.transferring,
             transferredBytes: sent,
@@ -199,6 +205,9 @@ class TransferService {
     final sender = senderName ?? 'Local';
     var fileSize = bytes.length;
 
+    // Compute sha256 checksum of original plain bytes (before encryption)
+    final fileChecksum = sha256.convert(bytes).toString();
+
     final transfer = TransferData(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       senderName: sender,
@@ -238,6 +247,7 @@ class TransferService {
         'originalSize': fileSize,
         'senderName': sender,
         'encrypted': encrypted,
+        'checksum': fileChecksum,
         if (encrypted) 'encKey': encService?.keyBase64,
         if (encrypted) 'encIv': encService?.ivBase64,
       });
@@ -410,6 +420,29 @@ class TransferService {
       ));
     } finally {
       try { socket?.destroy(); } catch (_) {}
+    }
+  }
+
+  // ═══════════════════════════════════════════
+  //  RETRY TRANSFER — re-sends a failed/pending transfer
+  // ═══════════════════════════════════════════
+  Future<void> retryTransfer(
+    TransferData transfer,
+    DiscoveredDevice device,
+  ) async {
+    if (transfer.type == TransferType.file && transfer.filePath != null) {
+      await sendFile(
+        device,
+        transfer.filePath!,
+        fileName: transfer.fileName,
+        senderName: transfer.senderName,
+      );
+    } else if (transfer.type == TransferType.text && transfer.textContent != null) {
+      await sendText(
+        device,
+        transfer.textContent!,
+        senderName: transfer.senderName,
+      );
     }
   }
 

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import '../models/transfer_data.dart';
@@ -272,6 +273,31 @@ class LocalNetworkService {
         } catch (e) {
           debugPrint('Decryption error: $e');
         }
+      }
+
+      // Verify checksum (skip if sender didn't include one — backward compat)
+      final expectedChecksum = headerJson['checksum'] as String?;
+      if (expectedChecksum != null) {
+        final actualChecksum = sha256.convert(fileData).toString();
+        if (actualChecksum != expectedChecksum) {
+          debugPrint(
+            'Checksum mismatch! Expected: $expectedChecksum, got: $actualChecksum',
+          );
+          _incomingController.add(IncomingTransfer(
+            id: fileId,
+            type: IncomingTransferType.file,
+            fileName: headerJson['fileName'] as String,
+            fileSize: originalSize ?? headerJson['fileSize'] as int,
+            senderName: headerJson['senderName'] as String? ?? 'Unknown',
+            status: 'checksum_mismatch',
+            receivedBytes: fileData.length,
+          ));
+          // Clean up temp file on mismatch
+          try { await File(tempPath).delete(); } catch (_) {}
+          try { await socket.close(); } catch (_) {}
+          return;
+        }
+        debugPrint('Checksum verified: $actualChecksum');
       }
 
       _incomingController.add(IncomingTransfer(

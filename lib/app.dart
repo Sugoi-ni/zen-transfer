@@ -3,6 +3,9 @@ import 'package:flutter/services.dart';
 import 'theme/zen_theme.dart';
 import 'screens/home_screen.dart';
 
+// Global flag set by main.dart before runApp
+bool appStartHidden = false;
+
 class ZenTransferApp extends StatelessWidget {
   const ZenTransferApp({super.key});
 
