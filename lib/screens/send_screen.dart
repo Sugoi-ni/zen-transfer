@@ -25,9 +25,10 @@ class _SendScreenState extends State<SendScreen> {
   void initState() {
     super.initState();
     _selectedDevice = widget.targetDevice;
+    // Directly open file picker — no intermediate menu
     if (widget.targetDevice != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _showSendOptions();
+        _pickFiles();
       });
     }
   }
@@ -49,14 +50,17 @@ class _SendScreenState extends State<SendScreen> {
 
   Future<void> _sendFiles(DiscoveredDevice device) async {
     if (_selectedFiles.isEmpty) return;
-    if (mounted) setState(() => _isSending = true);
+    if (!mounted) return;
+    setState(() => _isSending = true);
 
     final provider = context.read<TransferProvider>();
     int sentCount = 0;
     for (final file in _selectedFiles) {
+      if (!mounted) break;
       try {
-        if (file.path != null && file.path!.isNotEmpty) {
-          await provider.sendFileToDevice(device, file.path!);
+        final path = file.path;
+        if (path != null && path.isNotEmpty) {
+          await provider.sendFileToDevice(device, path);
           sentCount++;
         } else {
           final bytes = await file.readAsBytes();
@@ -68,9 +72,8 @@ class _SendScreenState extends State<SendScreen> {
       }
     }
 
-    if (mounted) {
-      setState(() => _isSending = false);
-    }
+    if (!mounted) return;
+    setState(() => _isSending = false);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -83,11 +86,13 @@ class _SendScreenState extends State<SendScreen> {
 
   Future<void> _sendText(DiscoveredDevice device) async {
     if (_textController.text.isEmpty) return;
+    if (!mounted) return;
     setState(() => _isSending = true);
 
     final provider = context.read<TransferProvider>();
     await provider.sendTextToDevice(device, _textController.text);
 
+    if (!mounted) return;
     setState(() => _isSending = false);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -95,83 +100,6 @@ class _SendScreenState extends State<SendScreen> {
       );
       Navigator.pop(context);
     }
-  }
-
-  void _showSendOptions() {
-    final target = _selectedDevice;
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: ZenTheme.darkCard,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: ZenTheme.darkBorderLight,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              SizedBox(height: 20),
-              Text(
-                target != null ? 'Send to ${target.name}' : 'Select what to send',
-                style: TextStyle(
-                  color: ZenTheme.textPrimary,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 24),
-              _buildOptionTile(
-                icon: Icons.insert_drive_file_rounded,
-                label: 'Send Files',
-                subtitle: 'Select files from your device',
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _pickFiles();
-                },
-              ),
-              const SizedBox(height: 10),
-              _buildOptionTile(
-                icon: Icons.text_fields_rounded,
-                label: 'Send Text',
-                subtitle: 'Type or paste text',
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _showTextInput();
-                },
-              ),
-              const SizedBox(height: 10),
-              _buildOptionTile(
-                icon: Icons.content_paste_rounded,
-                label: 'Send Clipboard',
-                subtitle: 'Quick paste and send',
-                onTap: () async {
-                  Navigator.pop(ctx);
-                  if (target == null) return;
-                  final provider = context.read<TransferProvider>();
-                  await provider.sendClipboardToDevice(target);
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Clipboard sent!')),
-                    );
-                    Navigator.pop(context);
-                  }
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   void _showTextInput() {
@@ -241,7 +169,10 @@ class _SendScreenState extends State<SendScreen> {
                     onPressed: _isSending
                         ? null
                         : _selectedDevice != null
-                            ? () => _sendText(_selectedDevice!)
+                            ? () {
+                                final device = _selectedDevice;
+                                if (device != null) _sendText(device);
+                              }
                             : null,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: ZenTheme.primaryPurple,
@@ -276,62 +207,39 @@ class _SendScreenState extends State<SendScreen> {
     );
   }
 
-  Widget _buildOptionTile({
+  Widget _buildBottomAction({
     required IconData icon,
     required String label,
-    required String subtitle,
-    required VoidCallback onTap,
+    VoidCallback? onTap,
   }) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(12),
       child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         decoration: BoxDecoration(
-          color: ZenTheme.darkSurface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: ZenTheme.darkBorder),
+          color: onTap != null ? ZenTheme.darkCard : ZenTheme.darkSurface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: onTap != null ? ZenTheme.darkBorder : ZenTheme.darkBorder.withValues(alpha: 0.4),
+          ),
         ),
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: ZenTheme.primaryPurple.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, color: ZenTheme.primaryPurple, size: 22),
-            ),
-            SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: TextStyle(
-                      color: ZenTheme.textPrimary,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 15,
-                    ),
-                  ),
-                  SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      color: ZenTheme.textTertiary,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
             Icon(
-              Icons.chevron_right_rounded,
-              color: ZenTheme.textTertiary,
+              icon,
+              color: onTap != null ? ZenTheme.primaryPurple : ZenTheme.textTertiary,
               size: 20,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: onTap != null ? ZenTheme.textPrimary : ZenTheme.textTertiary,
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ],
         ),
@@ -518,7 +426,7 @@ class _SendScreenState extends State<SendScreen> {
                           if (_selectedFiles.isNotEmpty) {
                             _sendFiles(device);
                           } else {
-                            _showSendOptions();
+                            _pickFiles();
                           }
                         },
                       ),
@@ -529,26 +437,94 @@ class _SendScreenState extends State<SendScreen> {
             ),
           ),
 
-          // Add files button
-          if (_selectedFiles.isEmpty)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: _pickFiles,
-                  icon: Icon(Icons.folder_open_rounded, size: 18),
-                  label: Text('Select Files'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    side: BorderSide(color: ZenTheme.darkBorderLight),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
+          // Bottom actions
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                // Text button
+                _buildBottomAction(
+                  icon: Icons.text_fields_rounded,
+                  label: 'Text',
+                  onTap: _selectedDevice != null ? _showTextInput : null,
                 ),
-              ),
+                const SizedBox(width: 10),
+                // Clipboard button
+                _buildBottomAction(
+                  icon: Icons.content_paste_rounded,
+                  label: 'Clipboard',
+                  onTap: _selectedDevice != null ? () async {
+                    final device = _selectedDevice;
+                    if (device == null) return;
+                    if (!mounted) return;
+                    final provider = context.read<TransferProvider>();
+                    await provider.sendClipboardToDevice(device);
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Clipboard sent!')),
+                      );
+                      Navigator.pop(context);
+                    }
+                  } : null,
+                ),
+                const SizedBox(width: 10),
+                // Main action: file picker or send
+                Expanded(
+                  child: _selectedFiles.isNotEmpty
+                      ? ElevatedButton.icon(
+                          onPressed: _isSending
+                              ? null
+                              : () {
+                                  final device = _selectedDevice;
+                                  if (device != null) {
+                                    _sendFiles(device);
+                                  } else {
+                                    _pickFiles();
+                                  }
+                                },
+                          icon: _isSending
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.send_rounded, size: 20),
+                          label: Text(
+                            _isSending
+                                ? 'Sending...'
+                                : 'Send ${_selectedFiles.length} file(s)',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: ZenTheme.primaryPurple,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        )
+                      : OutlinedButton.icon(
+                          onPressed: _pickFiles,
+                          icon: const Icon(Icons.folder_open_rounded, size: 18),
+                          label: const Text('Select Files'),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            side: BorderSide(color: ZenTheme.darkBorderLight),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                ),
+              ],
             ),
+          ),
         ],
       ),
     );

@@ -112,7 +112,7 @@ class TransferService {
         if (encrypted) 'encIv': encService?.ivBase64,
       });
       socket.add(Uint8List.fromList(utf8.encode(header)));
-      await socket.flush();
+      try { await socket.flush(); } catch (_) {}
 
       // Wait for ACK
       final ackData = await socket.first.timeout(const Duration(seconds: 5));
@@ -163,14 +163,18 @@ class TransferService {
         }
       }
 
-      await socket.flush();
-      await Future.delayed(const Duration(milliseconds: 200));
-      await socket.close();
-
+      // Mark completed BEFORE flush/close — receiver already has all data.
+      // flush/close can hang if the receiver closed its end, which would
+      // leave the transfer stuck at 100% "Sending" forever.
       _transferController.add(transfer.copyWith(
         status: TransferStatus.completed,
         transferredBytes: fileSize,
       ));
+
+      // Best-effort cleanup (non-blocking)
+      try { await socket.flush(); } catch (_) {}
+      try { await Future.delayed(const Duration(milliseconds: 200)); } catch (_) {}
+      try { await socket.close(); } catch (_) {}
     } catch (e) {
       debugPrint('File send error: $e');
       _transferController.add(transfer.copyWith(
@@ -238,7 +242,7 @@ class TransferService {
         if (encrypted) 'encIv': encService?.ivBase64,
       });
       socket.add(Uint8List.fromList(utf8.encode(header)));
-      await socket.flush();
+      try { await socket.flush(); } catch (_) {}
 
       final ackData = await socket.first.timeout(const Duration(seconds: 5));
       final ackMsg = utf8.decode(ackData);
@@ -269,14 +273,16 @@ class TransferService {
         ));
       }
 
-      await socket.flush();
-      await Future.delayed(const Duration(milliseconds: 200));
-      await socket.close();
-
+      // Mark completed BEFORE flush/close
       _transferController.add(transfer.copyWith(
         status: TransferStatus.completed,
         transferredBytes: fileSize,
       ));
+
+      // Best-effort cleanup
+      try { await socket.flush(); } catch (_) {}
+      try { await Future.delayed(const Duration(milliseconds: 200)); } catch (_) {}
+      try { await socket.close(); } catch (_) {}
     } catch (e) {
       debugPrint('File send error: $e');
       _transferController.add(transfer.copyWith(
@@ -383,18 +389,19 @@ class TransferService {
       });
 
       socket.add(Uint8List.fromList(utf8.encode(header)));
-      await socket.flush();
+      try { await socket.flush(); } catch (_) {}
 
       try {
         await socket.first.timeout(const Duration(seconds: 5));
       } catch (_) {}
 
-      try { await socket.close(); } catch (_) {}
-
+      // Mark completed BEFORE close
       _transferController.add(transfer.copyWith(
         status: TransferStatus.completed,
         transferredBytes: transfer.fileSize!,
       ));
+
+      try { await socket.close(); } catch (_) {}
     } catch (e) {
       debugPrint('Text send error: $e');
       _transferController.add(transfer.copyWith(

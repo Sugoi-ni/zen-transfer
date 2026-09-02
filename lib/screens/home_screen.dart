@@ -9,7 +9,7 @@ import '../services/share_service.dart';
 import '../widgets/device_tile.dart';
 import '../widgets/transfer_card.dart';
 import '../models/transfer_data.dart';
-import 'send_screen.dart';
+import 'package:file_picker/file_picker.dart';
 import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -337,6 +337,7 @@ class _HomeScreenState extends State<HomeScreen> {
               onTap: () {
                 Navigator.pop(context);
                 setState(() => _currentIndex = 1);
+                context.read<TransferProvider>().clearPendingCount();
               },
             ),
             _buildDrawerItem(
@@ -568,19 +569,16 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               SliverPadding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
-                sliver: SliverGrid(
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    mainAxisSpacing: 12,
-                    crossAxisSpacing: 12,
-                    childAspectRatio: 1.0,
-                  ),
+                sliver: SliverList(
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
-                      return DeviceTile(
-                        device: provider.devices[index],
-                        colorIndex: index,
-                        onTap: () => _selectDevice(provider.devices[index]),
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: DeviceTile(
+                          device: provider.devices[index],
+                          colorIndex: index,
+                          onTap: () => _selectDevice(provider.devices[index]),
+                        ),
                       );
                     },
                     childCount: provider.devices.length,
@@ -839,7 +837,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     label: 'Box',
                     isActive: _currentIndex == 1,
                     badge: provider.pendingDownloadsCount,
-                    onTap: () => setState(() => _currentIndex = 1),
+                    onTap: () {
+                      setState(() => _currentIndex = 1);
+                      provider.clearPendingCount();
+                    },
                   ),
                   _buildNavItem(
                     icon: Icons.history_rounded,
@@ -1002,14 +1003,20 @@ class _HomeScreenState extends State<HomeScreen> {
               _buildSheetAction(
                 icon: Icons.insert_drive_file_rounded,
                 label: 'Send Files',
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(ctx);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => SendScreen(targetDevice: device),
-                    ),
-                  );
+                  try {
+                    final result = await FilePicker.pickFiles(type: FileType.any);
+                    if (result.isNotEmpty && mounted) {
+                      _showFileReviewSheet(device, result);
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Could not open file picker')),
+                      );
+                    }
+                  }
                 },
               ),
               const SizedBox(height: 10),
@@ -1106,6 +1113,160 @@ class _HomeScreenState extends State<HomeScreen> {
               size: 20,
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  void _showFileReviewSheet(DiscoveredDevice device, List<PlatformFile> files) {
+    bool isSending = false;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: ZenTheme.darkCard,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Handle
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: ZenTheme.darkBorderLight,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                // Title
+                Text(
+                  'Send to ${device.name}',
+                  style: TextStyle(
+                    color: ZenTheme.textPrimary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${files.length} file(s) selected',
+                  style: TextStyle(
+                    color: ZenTheme.textTertiary,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // File list
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.4,
+                  ),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: files.length,
+                    itemBuilder: (ctx, index) {
+                      final file = files[index];
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: ZenTheme.darkSurface,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: ZenTheme.darkBorder),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.insert_drive_file_rounded,
+                              color: ZenTheme.primaryPurple,
+                              size: 22,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                file.name,
+                                style: TextStyle(
+                                  color: ZenTheme.textPrimary,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // Send button
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: isSending ? null : () async {
+                      setSheetState(() => isSending = true);
+                      final provider = context.read<TransferProvider>();
+                      int sentCount = 0;
+                      for (final file in files) {
+                        if (!mounted) break;
+                        try {
+                          final path = file.path;
+                          if (path != null && path.isNotEmpty) {
+                            await provider.sendFileToDevice(device, path);
+                            sentCount++;
+                          } else {
+                            final bytes = await file.readAsBytes();
+                            await provider.sendFileBytesToDevice(device, bytes, file.name);
+                            sentCount++;
+                          }
+                        } catch (e) {
+                          debugPrint('Error sending ${file.name}: $e');
+                        }
+                      }
+                      if (mounted) {
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(sentCount > 0 ? 'Sent $sentCount file(s)' : 'Failed to send'),
+                          ),
+                        );
+                      }
+                    },
+                    icon: isSending
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.send_rounded, size: 20),
+                    label: Text(
+                      isSending ? 'Sending...' : 'Send ${files.length} file(s)',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: ZenTheme.primaryPurple,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

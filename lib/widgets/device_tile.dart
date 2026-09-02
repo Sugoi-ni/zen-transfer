@@ -20,22 +20,21 @@ class DeviceTile extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(14),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
           color: ZenTheme.darkCard,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(color: ZenTheme.darkBorder, width: 1),
         ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+        child: Row(
           children: [
-            // Circular device avatar
+            // Device avatar
             Container(
-              width: 60,
-              height: 60,
+              width: 40,
+              height: 40,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: LinearGradient(
@@ -49,39 +48,50 @@ class DeviceTile extends StatelessWidget {
                 boxShadow: [
                   BoxShadow(
                     color: color.withValues(alpha: 0.25),
-                    blurRadius: 16,
-                    offset: const Offset(0, 4),
+                    blurRadius: 10,
+                    offset: const Offset(0, 2),
                   ),
                 ],
               ),
               child: Icon(
                 _getDeviceIcon(),
                 color: Colors.white,
-                size: 28,
+                size: 20,
               ),
             ),
-            SizedBox(height: 8),
-            // Device name
-            Text(
-              device.name,
-              style: TextStyle(
-                color: ZenTheme.textPrimary,
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
+            const SizedBox(width: 14),
+            // Device info
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    device.name,
+                    style: TextStyle(
+                      color: ZenTheme.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    device.platform,
+                    style: TextStyle(
+                      color: ZenTheme.textTertiary,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
             ),
-            SizedBox(height: 2),
-            // Platform + IP
-            Text(
-              device.platform,
-              style: TextStyle(
-                color: ZenTheme.textTertiary,
-                fontSize: 10,
-              ),
-              textAlign: TextAlign.center,
+            // Arrow icon
+            Icon(
+              Icons.chevron_right_rounded,
+              color: ZenTheme.textTertiary,
+              size: 20,
             ),
           ],
         ),

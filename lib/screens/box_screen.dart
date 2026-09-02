@@ -14,14 +14,6 @@ class BoxScreen extends StatefulWidget {
 
 class _BoxScreenState extends State<BoxScreen> {
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<TransferProvider>().clearPendingCount();
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: ZenTheme.darkBg,

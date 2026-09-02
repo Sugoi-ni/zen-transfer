@@ -34,6 +34,13 @@ class TransferProvider extends ChangeNotifier {
   /// Timer for refreshing speed/ETA display
   Timer? _speedRefreshTimer;
 
+  /// Timer for detecting stuck transfers (no progress for 60s)
+  Timer? _stuckTransferTimer;
+
+  /// Last progress timestamps for stuck detection
+  final Map<String, int> _lastProgressBytes = {};
+  final Map<String, DateTime> _lastProgressTime = {};
+
   // Getters
   List<DiscoveredDevice> get devices => _devices;
   List<TransferData> get transferHistory => _transferHistory;
@@ -48,13 +55,13 @@ class TransferProvider extends ChangeNotifier {
   bool get autoAccept => _settingsService.autoAccept;
   bool get encryptedTransfers => _settingsService.encryptedTransfers;
   bool get showOnLocalNetwork => _settingsService.showOnLocalNetwork;
-  bool get isLightMode => _settingsService.isLightMode;
 
   TransferProvider() {
     _transferService = TransferService(_networkService);
     _listenToTransfers();
     _listenToIncoming();
     _startSpeedRefreshTimer();
+    _startStuckTransferDetector();
   }
 
   /// Refresh speed/ETA display every second while transferring
@@ -68,21 +75,92 @@ class TransferProvider extends ChangeNotifier {
     });
   }
 
+  /// Detect stuck transfers — if no progress for 60s, mark as failed.
+  /// Also catches transfers stuck at 100% (completed but event missed).
+  void _startStuckTransferDetector() {
+    _stuckTransferTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      final now = DateTime.now();
+      for (final transfer in _transferHistory) {
+        if (transfer.status != TransferStatus.transferring) continue;
+        if (transfer.type != TransferType.file) continue;
+
+        // If at 100% — it's done, just the event was missed
+        if (transfer.fileSize != null &&
+            transfer.fileSize! > 0 &&
+            transfer.transferredBytes >= transfer.fileSize!) {
+          debugPrint('Transfer at 100% stuck as Sending: ${transfer.fileName} — marking completed');
+          final idx = _transferHistory.indexWhere((t) => t.id == transfer.id);
+          if (idx != -1) {
+            _transferHistory[idx] = _transferHistory[idx].copyWith(
+              status: TransferStatus.completed,
+            );
+          }
+          _lastProgressBytes.remove(transfer.id);
+          _lastProgressTime.remove(transfer.id);
+          _saveHistory();
+          continue;
+        }
+
+        final currentBytes = transfer.transferredBytes;
+        final lastBytes = _lastProgressBytes[transfer.id];
+        final lastTime = _lastProgressTime[transfer.id];
+
+        if (lastBytes != null && lastTime != null) {
+          if (currentBytes == lastBytes) {
+            // No progress since last check
+            final elapsed = now.difference(lastTime).inSeconds;
+            if (elapsed >= 60) {
+              debugPrint('Transfer stuck for ${elapsed}s: ${transfer.fileName} — marking failed');
+              final idx = _transferHistory.indexWhere((t) => t.id == transfer.id);
+              if (idx != -1) {
+                _transferHistory[idx] = _transferHistory[idx].copyWith(
+                  status: TransferStatus.failed,
+                  error: 'Transfer timed out — no progress for ${elapsed}s',
+                );
+              }
+              _lastProgressBytes.remove(transfer.id);
+              _lastProgressTime.remove(transfer.id);
+            }
+          } else {
+            // Progress happened, reset timer
+            _lastProgressBytes[transfer.id] = currentBytes;
+            _lastProgressTime[transfer.id] = now;
+          }
+        } else {
+          // First time tracking this transfer
+          _lastProgressBytes[transfer.id] = currentBytes;
+          _lastProgressTime[transfer.id] = now;
+        }
+      }
+      notifyListeners();
+    });
+  }
+
   void _listenToTransfers() {
     _transferService.transferStream.listen((transfer) {
       _activeTransfer = transfer;
 
+      // Always update or insert — never duplicate
+      final idx = _transferHistory.indexWhere((t) => t.id == transfer.id);
+
       if (transfer.status == TransferStatus.completed ||
           transfer.status == TransferStatus.failed) {
-        _transferHistory.insert(0, transfer);
+        if (idx != -1) {
+          // Update existing entry in-place (no duplicate)
+          _transferHistory[idx] = transfer;
+        } else {
+          _transferHistory.insert(0, transfer);
+        }
         if (_transferHistory.length > 50) {
           _transferHistory = _transferHistory.sublist(0, 50);
         }
+        // Clean up stuck detection tracking
+        _lastProgressBytes.remove(transfer.id);
+        _lastProgressTime.remove(transfer.id);
         _saveHistory();
       } else if (transfer.status == TransferStatus.transferring ||
           transfer.status == TransferStatus.paused) {
         // Update or insert active transfer in history
-        final idx = _transferHistory.indexWhere((t) => t.id == transfer.id);
         if (idx != -1) {
           _transferHistory[idx] = transfer;
         } else {
@@ -340,6 +418,15 @@ class TransferProvider extends ChangeNotifier {
     _transferService.saveHistory(_transferHistory);
   }
 
+  /// Clear all transfer history
+  void clearHistory() {
+    _transferHistory.clear();
+    _lastProgressBytes.clear();
+    _lastProgressTime.clear();
+    _saveHistory();
+    notifyListeners();
+  }
+
   /// Initialize the provider with device name
   Future<void> initialize(String name) async {
     debugPrint('=== Provider Init: $name ===');
@@ -347,11 +434,9 @@ class TransferProvider extends ChangeNotifier {
 
     // Load persisted settings
     await _settingsService.init();
-    ZenTheme.isLight = _settingsService.isLightMode;
     debugPrint('Settings loaded: autoAccept=${_settingsService.autoAccept}, '
         'encrypt=${_settingsService.encryptedTransfers}, '
-        'visible=${_settingsService.showOnLocalNetwork}, '
-        'lightMode=${_settingsService.isLightMode}');
+        'visible=${_settingsService.showOnLocalNetwork}');
 
     // Request storage permission on Android
     if (defaultTargetPlatform == TargetPlatform.android) {
@@ -563,16 +648,10 @@ class TransferProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Update light/dark theme
-  Future<void> setLightMode(bool value) async {
-    await _settingsService.setLightMode(value);
-    ZenTheme.isLight = value;
-    notifyListeners();
-  }
-
   @override
   void dispose() {
     _speedRefreshTimer?.cancel();
+    _stuckTransferTimer?.cancel();
     _networkService.stop();
     _transferService.dispose();
     super.dispose();

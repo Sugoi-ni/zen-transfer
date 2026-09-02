@@ -99,6 +99,14 @@ class TransferCard extends StatelessWidget {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 3),
+                    Text(
+                      _formatTimestamp(transfer.timestamp),
+                      style: TextStyle(
+                        color: ZenTheme.textTertiary,
+                        fontSize: 11,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -213,7 +221,10 @@ class TransferCard extends StatelessWidget {
           // ── File preview thumbnail (completed files) ──
           if (isCompleted && _isPreviewable()) ...[
             SizedBox(height: 10),
-            _buildThumbnail(),
+            GestureDetector(
+              onTap: () => _openPreview(context),
+              child: _buildThumbnail(),
+            ),
           ],
 
           // ── File size ──
@@ -263,28 +274,35 @@ class TransferCard extends StatelessWidget {
           // ── Action buttons ──
           if (showActions && isCompleted) ...[
             SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            Row(
               children: [
-                _buildActionButton(
-                  icon: Icons.open_in_new_rounded,
-                  label: 'Open',
-                  color: ZenTheme.primaryPurple,
-                  onTap: () => _openFile(context),
-                ),
-                if (defaultTargetPlatform != TargetPlatform.windows)
-                  _buildActionButton(
-                    icon: Icons.share_rounded,
-                    label: 'Share',
-                    color: ZenTheme.accentPurple,
-                    onTap: () => _shareFile(context),
+                Expanded(
+                  child: _buildActionButton(
+                    icon: Icons.open_in_new_rounded,
+                    label: 'Open',
+                    color: ZenTheme.primaryPurple,
+                    onTap: () => _openFile(context),
                   ),
-                _buildActionButton(
-                  icon: Icons.folder_open_rounded,
-                  label: 'Folder',
-                  color: ZenTheme.textSecondary,
-                  onTap: () => _openFolder(context),
+                ),
+                if (defaultTargetPlatform != TargetPlatform.windows) ...[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _buildActionButton(
+                      icon: Icons.share_rounded,
+                      label: 'Share',
+                      color: ZenTheme.accentPurple,
+                      onTap: () => _shareFile(context),
+                    ),
+                  ),
+                ],
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildActionButton(
+                    icon: Icons.folder_open_rounded,
+                    label: 'Folder',
+                    color: ZenTheme.textSecondary,
+                    onTap: () => _openFolder(context),
+                  ),
                 ),
               ],
             ),
@@ -308,15 +326,18 @@ class TransferCard extends StatelessWidget {
 
     // Image preview
     if (FileTypeHelper.isImage(ext)) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: SizedBox(
-          height: 120,
-          width: double.infinity,
-          child: Image.file(
-            File(filePath),
-            fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => _buildPlaceholderThumb(),
+      return Padding(
+        padding: const EdgeInsets.only(top: 10),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: SizedBox(
+            height: 160,
+            width: double.infinity,
+            child: Image.file(
+              File(filePath),
+              fit: BoxFit.contain,
+              errorBuilder: (_, _, _) => _buildPlaceholderThumb(),
+            ),
           ),
         ),
       );
@@ -478,7 +499,8 @@ class TransferCard extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(12),
@@ -488,13 +510,13 @@ class TransferCard extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: color, size: 18),
-            const SizedBox(width: 8),
+            Icon(icon, color: color, size: 16),
+            const SizedBox(width: 6),
             Text(
               label,
               style: TextStyle(
                 color: color,
-                fontSize: 14,
+                fontSize: 13,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -665,6 +687,60 @@ class TransferCard extends StatelessWidget {
         SnackBar(content: Text('Could not open folder: ${result.message}')),
       );
     }
+  }
+
+  void _openPreview(BuildContext context) {
+    final filePath = transfer.filePath;
+    if (filePath == null) return;
+    final ext = transfer.fileName?.split('.').last.toLowerCase() ?? '';
+
+    if (FileTypeHelper.isImage(ext)) {
+      showDialog(
+        context: context,
+        barrierColor: Colors.black87,
+        builder: (ctx) => GestureDetector(
+          onTap: () => Navigator.pop(ctx),
+          child: InteractiveViewer(
+            minScale: 0.5,
+            maxScale: 4.0,
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Image.file(
+                  File(filePath),
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    } else {
+      _openFile(context);
+    }
+  }
+
+  String _formatTimestamp(DateTime dt) {
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inHours < 1) return '${diff.inMinutes}m ago';
+    if (diff.inDays < 1) {
+      final h = dt.hour.toString().padLeft(2, '0');
+      final m = dt.minute.toString().padLeft(2, '0');
+      return 'Today $h:$m';
+    }
+    if (diff.inDays < 2) {
+      final h = dt.hour.toString().padLeft(2, '0');
+      final m = dt.minute.toString().padLeft(2, '0');
+      return 'Yesterday $h:$m';
+    }
+    final day = dt.day.toString().padLeft(2, '0');
+    final month = dt.month.toString().padLeft(2, '0');
+    final h = dt.hour.toString().padLeft(2, '0');
+    final m = dt.minute.toString().padLeft(2, '0');
+    return '$day/$month/${dt.year} $h:$m';
   }
 }
 

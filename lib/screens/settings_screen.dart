@@ -73,22 +73,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Appearance
-          _buildSection(
-            title: 'APPEARANCE',
-            children: [
-              Consumer<TransferProvider>(
-                builder: (context, provider, _) => _buildSwitchTile(
-                  title: 'Light mode',
-                  subtitle: 'Switch between dark and light theme',
-                  value: provider.isLightMode,
-                  onChanged: (v) => provider.setLightMode(v),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-
           // Transfer settings
           _buildSection(
             title: 'TRANSFER',
@@ -116,6 +100,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ],
                 ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // Data
+          _buildSection(
+            title: 'DATA',
+            children: [
+              _buildActionTile(
+                icon: Icons.delete_sweep_rounded,
+                iconColor: Colors.redAccent,
+                title: 'Clear transfer history',
+                subtitle: 'Remove all past transfer records',
+                onTap: () => _showClearHistoryDialog(context),
               ),
             ],
           ),
@@ -267,6 +266,94 @@ class _SettingsScreenState extends State<SettingsScreen> {
               color: ZenTheme.textTertiary,
               fontSize: 13,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionTile({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: iconColor, size: 20),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: ZenTheme.textPrimary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: ZenTheme.textTertiary,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded, color: ZenTheme.textTertiary, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showClearHistoryDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: ZenTheme.darkCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          'Clear Transfer History',
+          style: TextStyle(color: ZenTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.w600),
+        ),
+        content: Text(
+          'This will remove all past transfer records. This action cannot be undone.',
+          style: TextStyle(color: ZenTheme.textSecondary, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancel', style: TextStyle(color: ZenTheme.textTertiary)),
+          ),
+          TextButton(
+            onPressed: () {
+              context.read<TransferProvider>().clearHistory();
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Transfer history cleared')),
+              );
+            },
+            child: const Text('Clear', style: TextStyle(color: Colors.redAccent)),
           ),
         ],
       ),
