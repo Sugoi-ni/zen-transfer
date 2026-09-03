@@ -336,6 +336,8 @@ class TransferCard extends StatelessWidget {
             child: Image.file(
               File(filePath),
               fit: BoxFit.contain,
+              cacheWidth: 320,
+              cacheHeight: 320,
               errorBuilder: (_, _, _) => _buildPlaceholderThumb(),
             ),
           ),

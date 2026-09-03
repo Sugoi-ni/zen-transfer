@@ -28,8 +28,8 @@ class TransferProvider extends ChangeNotifier {
   bool _isServerRunning = false;
   bool _isScanning = false;
 
-  /// File data waiting to be downloaded (keyed by transfer ID)
-  final Map<String, Uint8List> _pendingDownloads = {};
+  /// File path waiting to be opened (keyed by transfer ID)
+  final Map<String, String> _pendingDownloads = {};
 
   /// Map from IncomingTransfer.id to TransferData.id for tracking
   final Map<String, String> _incomingToTransferId = {};
@@ -254,9 +254,8 @@ class TransferProvider extends ChangeNotifier {
       final transferId = _incomingToTransferId[incoming.id] ?? 'inc_${incoming.id}';
       _incomingToTransferId[incoming.id] = transferId;
 
-      // Store file data in memory for later download
-      if (incoming.fileData != null) {
-        _pendingDownloads[transferId] = incoming.fileData!;
+      if (incoming.filePath != null) {
+        _pendingDownloads[transferId] = incoming.filePath!;
       }
 
       // Auto-accept: save immediately without waiting for user tap
@@ -418,8 +417,8 @@ class TransferProvider extends ChangeNotifier {
 
   /// Download a received file — save to disk with progress
   Future<void> downloadFile(String transferId) async {
-    final data = _pendingDownloads[transferId];
-    if (data == null) {
+    final filePath = _pendingDownloads[transferId];
+    if (filePath == null) {
       debugPrint('No pending data for $transferId');
       return;
     }
@@ -440,32 +439,17 @@ class TransferProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Save file to disk with progress updates
-      final fileName = transfer.fileName ?? 'unknown_file';
-      debugPrint('Downloading file: $fileName (${data.length} bytes)');
-      final savedPath = await _transferService.saveReceivedFile(
-        fileName: fileName,
-        data: data,
-        onProgress: (written, total) {
-          final i = _transferHistory.indexWhere((t) => t.id == transferId);
-          if (i != -1) {
-            _transferHistory[i] = _transferHistory[i].copyWith(
-              transferredBytes: written,
-            );
-            notifyListeners();
-          }
-        },
-      );
+      // File already saved to disk by LocalNetworkService — just open it
+      final savedPath = filePath; // file is already on disk
+      debugPrint('Opening file: $savedPath');
 
-      debugPrint('File saved to: $savedPath');
-
-      // Update to completed
+      // Update to completed with filePath
       final i = _transferHistory.indexWhere((t) => t.id == transferId);
       if (i != -1) {
         _transferHistory[i] = _transferHistory[i].copyWith(
           status: TransferStatus.completed,
           filePath: savedPath,
-          transferredBytes: data.length,
+          transferredBytes: transfer.fileSize ?? 0,
         );
       }
 

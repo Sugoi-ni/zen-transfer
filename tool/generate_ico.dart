@@ -37,7 +37,8 @@ Uint8List _buildIco(List<Uint8List> pngs, List<int> sizes) {
     ..setUint16(4, count, Endian.little);
   out.add(header.buffer.asUint8List());
 
-  var offset = 6 + 16 * count;
+  // ICONDIR + all ICONDIRENTRYs end here — PNG frames start after.
+  final iconDirEndOffset = 6 + 16 * count;
   for (var i = 0; i < count; i++) {
     final s = sizes[i];
     // ICONDIRENTRY: 256 is encoded as 0
@@ -49,9 +50,11 @@ Uint8List _buildIco(List<Uint8List> pngs, List<int> sizes) {
       ..setUint16(4, 1, Endian.little) // color planes
       ..setUint16(6, 32, Endian.little) // bits per pixel
       ..setUint32(8, pngs[i].length, Endian.little)
-      ..setUint32(12, offset, Endian.little);
+      ..setUint32(12, iconDirEndOffset +
+          (i > 0 ? pngs.sublist(0, i).fold(0, (a, b) => a + b.length)
+                  : 0),
+          Endian.little);
     out.add(entry.buffer.asUint8List());
-    offset += pngs[i].length;
   }
 
   for (final png in pngs) {

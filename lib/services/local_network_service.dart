@@ -32,8 +32,6 @@ class LocalNetworkService {
       (socket) => _handleConnection(socket, deviceName),
       onError: (e) => debugPrint('Server error: $e'),
     );
-
-    // Server started
   }
 
   // ═══════════════════════════════════════════
@@ -47,12 +45,15 @@ class LocalNetworkService {
       Map<String, dynamic>? headerJson;
       String? currentFileId;
 
-      // Disk streaming state
+      // Disk streaming state — chunks written directly to temp file,
+      // never held in memory.
       IOSink? tempSink;
       String? tempPath;
-      var fileReceived = 0;
-      var fileSize = 0;
-      var originalSize = 0;
+      int fileReceived = 0;
+      int fileSize = 0;
+      int originalSize = 0;
+      String? fileName;
+      String? senderName;
       bool isEncrypted = false;
       String? encKey;
       String? encIv;
@@ -80,23 +81,53 @@ class LocalNetworkService {
                   encIv = json['encIv'] as String?;
                   currentFileId =
                       '${json['fileName']}_${DateTime.now().millisecondsSinceEpoch}';
+                  fileName = json['fileName'] as String;
+                  senderName = json['senderName'] as String? ?? 'Unknown';
+
+                  // Determine final destination path (decrypted file)
+                  final destinationDir = _androidDownloadDir;
+                  if (!destinationDir.existsSync()) {
+                    destinationDir.createSync(recursive: true);
+                  }
+                  final baseName = fileName!.contains('.')
+                      ? fileName!.substring(0, fileName!.lastIndexOf('.'))
+                      : fileName;
+                  final ext = fileName!.contains('.')
+                      ? '.${fileName!.split('.').last}'
+                      : '';
+                  var candidatePath =
+                      '${destinationDir.path}${Platform.pathSeparator}$fileName';
+                  var counter = 1;
+                  while (File(candidatePath).existsSync()) {
+                    candidatePath =
+                        '${destinationDir.path}${Platform.pathSeparator}${baseName}_$counter$ext';
+                    counter++;
+                  }
+                  final finalPath = candidatePath;
 
                   // Open temp file for disk streaming
-                  tempPath = '${Directory.systemTemp.path}${Platform.pathSeparator}zen_$currentFileId';
+                  tempPath =
+                      '${Directory.systemTemp.path}${Platform.pathSeparator}zen_$currentFileId';
                   tempSink = File(tempPath!).openWrite();
 
+                  // ACK header
                   socket.add(Uint8List.fromList(
                       utf8.encode(jsonEncode({'type': 'ack'}))));
                   socket.flush();
+
                   _incomingController.add(IncomingTransfer(
                     id: currentFileId,
                     type: IncomingTransferType.file,
-                    fileName: json['fileName'] as String,
+                    fileName: fileName,
                     fileSize: originalSize,
-                    senderName: json['senderName'] as String? ?? 'Unknown',
+                    senderName: senderName!,
                     status: 'receiving',
+                    receivedBytes: 0,
+                    filePath: null,
+                    pendingFinalPath: finalPath,
                   ));
-                  debugPrint('Incoming file: ${json['fileName']} ($fileSize bytes, enc=$isEncrypted)');
+                  debugPrint(
+                      'Incoming file: $fileName ($originalSize bytes, enc=$isEncrypted)');
                   break;
                 case 'text':
                   _handleIncomingText(socket, json);
@@ -106,224 +137,393 @@ class LocalNetworkService {
               }
             } catch (_) {
               // Try merged header+data parsing (brace counting)
-              int depth = 0;
-              int jsonEnd = -1;
-              for (var i = 0; i < data.length; i++) {
-                if (data[i] == 0x7B) {
-                  depth++;
-                } else if (data[i] == 0x7D) {
-                  depth--;
-                  if (depth == 0) {
-                    jsonEnd = i;
-                    break;
-                  }
-                }
-              }
-
-              if (jsonEnd > 0) {
-                final headerBytes = data.sublist(0, jsonEnd + 1);
-                final headerStr = utf8.decode(headerBytes, allowMalformed: true);
-                try {
-                  final json = jsonDecode(headerStr) as Map<String, dynamic>;
-                  final type = json['type'] as String;
-                  pendingType = type;
-                  headerJson = json;
-                  debugPrint('Server received (merged): $type');
-
-                  switch (type) {
-                    case 'discover':
-                      _handleDiscovery(socket, json, deviceName);
-                      break;
-                    case 'file_header':
-                      fileSize = json['fileSize'] as int;
-                      originalSize = json['originalSize'] as int? ?? fileSize;
-                      isEncrypted = json['encrypted'] as bool? ?? false;
-                      encKey = json['encKey'] as String?;
-                      encIv = json['encIv'] as String?;
-                      currentFileId =
-                          '${json['fileName']}_${DateTime.now().millisecondsSinceEpoch}';
-
-                      tempPath = '${Directory.systemTemp.path}${Platform.pathSeparator}zen_$currentFileId';
-                      tempSink = File(tempPath!).openWrite();
-
-                      socket.add(Uint8List.fromList(
-                          utf8.encode(jsonEncode({'type': 'ack'}))));
-                      socket.flush();
-                      _incomingController.add(IncomingTransfer(
-                        id: currentFileId,
-                        type: IncomingTransferType.file,
-                        fileName: json['fileName'] as String,
-                        fileSize: originalSize,
-                        senderName: json['senderName'] as String? ?? 'Unknown',
-                        status: 'receiving',
-                      ));
-
-                      // Process remaining bytes as file data
-                      final remaining = data.sublist(jsonEnd + 1);
-                      if (remaining.isNotEmpty) {
-                        tempSink!.add(remaining);
-                        fileReceived += remaining.length;
-                        debugPrint('Merged: ${remaining.length} bytes file data');
-                        _emitReceivingProgress(currentFileId!, json, fileReceived, fileSize);
-                        if (fileReceived >= fileSize) {
-                          _finalizeFromDisk(socket, tempSink, tempPath!,
-                              fileReceived, headerJson,
-                              fileId: currentFileId,
-                              isEncrypted: isEncrypted,
-                              encKey: encKey, encIv: encIv,
-                              originalSize: originalSize);
-                        }
-                      }
-                      break;
-                    case 'text':
-                      _handleIncomingText(socket, json);
-                      break;
-                  }
-                } catch (e) {
-                  debugPrint('Merged header parse error: $e');
-                }
-              }
+              _tryMergedHeader(socket, data, deviceName);
             }
           } else if (pendingType == 'file_header') {
             // FILE DATA PHASE — Write directly to disk
             tempSink!.add(data);
             fileReceived += data.length;
 
-            _emitReceivingProgress(currentFileId!, headerJson!, fileReceived, fileSize);
+            _incomingController.add(IncomingTransfer(
+              id: currentFileId!,
+              type: IncomingTransferType.file,
+              fileName: fileName!,
+              fileSize: originalSize,
+              senderName: senderName!,
+              status: 'receiving',
+              receivedBytes: fileReceived,
+              filePath: null,
+              pendingFinalPath: null,
+            ));
 
-            if (fileReceived >= fileSize) {
-              _finalizeFromDisk(socket, tempSink!, tempPath!,
-                  fileReceived, headerJson,
-                  fileId: currentFileId,
-                  isEncrypted: isEncrypted,
-                  encKey: encKey, encIv: encIv,
-                  originalSize: originalSize);
+            if (fileReceived >= originalSize) {
+              _finalizeFile(socket, tempSink!, tempPath!, fileReceived,
+                  headerJson!, currentFileId!, isEncrypted, encKey, encIv,
+                  originalSize, fileName!, senderName!, null);
             }
           }
         },
         onDone: () async {
-          if (pendingType == 'file_header' && fileReceived > 0 && fileReceived < fileSize) {
-            _finalizeFromDisk(socket, tempSink, tempPath!,
-                fileReceived, headerJson,
-                fileId: currentFileId,
-                isEncrypted: isEncrypted,
-                encKey: encKey, encIv: encIv,
-                originalSize: originalSize);
+          if (pendingType == 'file_header' &&
+              fileReceived > 0 &&
+              fileReceived < originalSize &&
+              tempSink != null &&
+              tempPath != null) {
+            _finalizeFile(
+              socket,
+              tempSink!,
+              tempPath!,
+                             fileReceived,
+                             headerJson!,
+              currentFileId!,
+              isEncrypted,
+              encKey,
+              encIv,
+              originalSize,
+              fileName!,
+              senderName!,
+              null,
+            );
           }
         },
         onError: (e) {
           debugPrint('Connection stream error: $e');
-          tempSink?.close();
-          try { socket.close(); } catch (_) {}
+          try {
+            tempSink?.close();
+          } catch (_) {}
+          try {
+            socket.close();
+          } catch (_) {}
         },
       );
     } catch (e) {
       debugPrint('Connection error: $e');
-      try { await socket.close(); } catch (_) {}
+      try {
+        await socket.close();
+      } catch (_) {}
     }
   }
 
-  void _emitReceivingProgress(String fileId, Map<String, dynamic> json, int received, int total) {
-    _incomingController.add(IncomingTransfer(
-      id: fileId,
-      type: IncomingTransferType.file,
-      fileName: json['fileName'] as String,
-      fileSize: json['originalSize'] as int? ?? total,
-      senderName: json['senderName'] as String? ?? 'Unknown',
-      status: 'receiving',
-      receivedBytes: received,
-    ));
+  /// Try parsing a merged header+data packet using brace counting.
+  /// Try parsing a merged header+data packet using brace counting.
+  Future<void> _tryMergedHeader(Socket socket, Uint8List data, String deviceName) async {
+    int depth = 0;
+    int jsonEnd = -1;
+    for (var i = 0; i < data.length; i++) {
+      if (data[i] == 0x7B) {
+        depth++;
+      } else if (data[i] == 0x7D) {
+        depth--;
+        if (depth == 0) {
+          jsonEnd = i;
+          break;
+        }
+      }
+    }
+
+    if (jsonEnd > 0) {
+      final headerBytes = data.sublist(0, jsonEnd + 1);
+      final headerStr = utf8.decode(headerBytes, allowMalformed: true);
+      try {
+        final json = jsonDecode(headerStr) as Map<String, dynamic>;
+        final type = json['type'] as String;
+        debugPrint('Server received (merged): $type');
+
+        final downloadDir = _androidDownloadDir;
+
+        switch (type) {
+          case 'discover':
+            _handleDiscovery(socket, json, deviceName);
+            break;
+          case 'file_header':
+            final fileSize = json['fileSize'] as int;
+            final originalSize = json['originalSize'] as int? ?? fileSize;
+            final isEncrypted = json['encrypted'] as bool? ?? false;
+            final encKey = json['encKey'] as String?;
+            final encIv = json['encIv'] as String?;
+            final currentFileId =
+                '${json['fileName']}_${DateTime.now().millisecondsSinceEpoch}';
+            final fileName = json['fileName'] as String;
+            final senderName = json['senderName'] as String? ?? 'Unknown';
+
+            if (!await downloadDir.exists()) {
+              await downloadDir.create(recursive: true);
+            }
+            final baseName = fileName.contains('.')
+                ? fileName.substring(0, fileName.lastIndexOf('.'))
+                : fileName;
+            final ext = fileName.contains('.')
+                ? '.${fileName.split('.').last}'
+                : '';
+            var candidatePath =
+                '${downloadDir.path}${Platform.pathSeparator}$fileName';
+            var counter = 1;
+            while (await File(candidatePath).exists()) {
+              candidatePath =
+                  '${downloadDir.path}${Platform.pathSeparator}${baseName}_$counter$ext';
+              counter++;
+            }
+            final finalPath = candidatePath;
+
+            final tempPath =
+                '${Directory.systemTemp.path}${Platform.pathSeparator}zen_$currentFileId';
+            final tempSink = File(tempPath!).openWrite();
+
+            socket.add(Uint8List.fromList(
+                utf8.encode(jsonEncode({'type': 'ack'}))));
+            socket.flush();
+
+            _incomingController.add(IncomingTransfer(
+              id: currentFileId,
+              type: IncomingTransferType.file,
+              fileName: fileName,
+              fileSize: originalSize,
+              senderName: senderName!,
+              status: 'receiving',
+              receivedBytes: 0,
+              filePath: null,
+              pendingFinalPath: finalPath,
+            ));
+
+            // Process remaining bytes as file data
+            final remaining = data.sublist(jsonEnd + 1);
+            if (remaining.isNotEmpty) {
+              tempSink.add(remaining);
+              final received = remaining.length;
+              _incomingController.add(IncomingTransfer(
+                id: currentFileId,
+                type: IncomingTransferType.file,
+                fileName: fileName,
+                fileSize: originalSize,
+                senderName: senderName!,
+                status: 'receiving',
+                receivedBytes: received,
+                filePath: null,
+              ));
+              if (received >= originalSize) {
+                _finalizeFile(
+                  socket,
+                  tempSink,
+                  tempPath,
+                  received,
+                  json,
+                  currentFileId,
+                  isEncrypted,
+                  encKey,
+                  encIv,
+                  originalSize,
+                  fileName,
+                  senderName,
+                  finalPath,
+                );
+              }
+            }
+            break;
+          case 'text':
+            _handleIncomingText(socket, json);
+            break;
+        }
+      } catch (e) {
+        debugPrint('Merged header parse error: $e');
+      }
+    }
   }
 
   // ═══════════════════════════════════════════
-  //  FINALIZE — Read from temp file, decrypt, save
+  //  FINALIZE — decrypt if needed, move to final path
   // ═══════════════════════════════════════════
-  void _finalizeFromDisk(
+  Future<void> _finalizeFile(
     Socket socket,
-    IOSink? tempSink,
+    IOSink tempSink,
     String tempPath,
     int totalBytes,
-    Map<String, dynamic>? headerJson, {
-    String? fileId,
-    bool isEncrypted = false,
+    Map<String, dynamic> headerJson,
+    String fileId,
+    bool isEncrypted,
     String? encKey,
     String? encIv,
-    int? originalSize,
-  }) async {
-    if (headerJson == null) return;
+    int originalSize,
+    String fileName,
+    String senderName,
+    String? pendingFinalPath,
+  ) async {
+    if (headerJson == null) {
+      try { await socket.close(); } catch (_) {}
+      return;
+    }
 
     try {
-      await tempSink?.flush();
-      await tempSink?.close();
+      await tempSink.flush();
+    } catch (_) {}
+    try {
+      await tempSink.close();
     } catch (_) {}
 
-    try {
-      var fileData = await File(tempPath).readAsBytes();
-      debugPrint('Temp file read: ${fileData.length} bytes');
+    // Determine final path
+    final destinationDir = _androidDownloadDir;
+    String finalPath;
+    if (pendingFinalPath != null) {
+      finalPath = pendingFinalPath;
+    } else {
+      if (!await destinationDir.exists()) {
+        await destinationDir.create(recursive: true);
+      }
+      final baseName = fileName.contains('.')
+          ? fileName.substring(0, fileName.lastIndexOf('.'))
+          : fileName;
+      final ext = fileName.contains('.')
+          ? '.${fileName.split('.').last}'
+          : '';
+      finalPath =
+          '${destinationDir.path}${Platform.pathSeparator}$fileName';
+      var counter = 1;
+      while (await File(finalPath).exists()) {
+        finalPath =
+            '${destinationDir.path}${Platform.pathSeparator}${baseName}_$counter$ext';
+        counter++;
+      }
+    }
 
-      // Decrypt if encrypted
-      if (isEncrypted && encKey != null && encIv != null) {
-        try {
-          final encService = EncryptionService.fromPayload({
-            'key': encKey,
-            'iv': encIv,
-          });
-          fileData = encService.decryptData(fileData);
-          debugPrint('Decrypted: $totalBytes -> ${fileData.length} bytes');
-        } catch (e) {
-          debugPrint('Decryption error: $e');
-        }
+    if (!isEncrypted) {
+      // Non-encrypted: move temp to final path
+      await _moveTempToFinal(tempPath, finalPath, fileId, fileName, originalSize, senderName);
+      return;
+    }
+
+    // Encrypted: decrypt to final path, then emit received event
+    try {
+      final tempFile = File(tempPath);
+      if (!await tempFile.exists()) {
+        throw Exception('temp file not found: $tempPath');
       }
 
-      // Verify checksum (skip if sender didn't include one — backward compat)
-      final expectedChecksum = headerJson['checksum'] as String?;
-      if (expectedChecksum != null) {
-        final actualChecksum = sha256.convert(fileData).toString();
-        if (actualChecksum != expectedChecksum) {
-          debugPrint(
-            'Checksum mismatch! Expected: $expectedChecksum, got: $actualChecksum',
-          );
-          _incomingController.add(IncomingTransfer(
-            id: fileId,
-            type: IncomingTransferType.file,
-            fileName: headerJson['fileName'] as String,
-            fileSize: originalSize ?? headerJson['fileSize'] as int,
-            senderName: headerJson['senderName'] as String? ?? 'Unknown',
-            status: 'checksum_mismatch',
-            receivedBytes: fileData.length,
-          ));
-          // Clean up temp file on mismatch
-          try { await File(tempPath).delete(); } catch (_) {}
-          try { await socket.close(); } catch (_) {}
-          return;
+      // Read temp file (this is the encrypted data)
+      final ciphertext = await tempFile.readAsBytes();
+
+      // Decrypt using EncryptionService
+      final encService = EncryptionService.fromPayload({
+        'key': encKey!,
+        'iv': encIv!,
+      });
+      final plaintext = encService.decryptData(ciphertext);
+
+      // Write decrypted data to final path
+      final finalFile = File(finalPath);
+      await finalFile.writeAsBytes(plaintext);
+
+      // Delete temp file
+      try {
+        await tempFile.delete();
+      } catch (_) {}
+
+      // Emit received event with filePath (no fileData blob)
+      _incomingController.add(IncomingTransfer(
+        id: fileId,
+        type: IncomingTransferType.file,
+        fileName: fileName,
+        fileSize: originalSize,
+        senderName: senderName!,
+        status: 'received',
+        receivedBytes: originalSize,
+        filePath: finalPath,
+      ));
+      debugPrint('File received (decrypted): $fileName -> $finalPath');
+    } catch (e) {
+      debugPrint('Decrypt/finalize error: $e');
+      // Clean up temp file on error
+      try {
+        await File(tempPath).delete();
+      } catch (_) {}
+      _incomingController.add(IncomingTransfer(
+        id: fileId,
+        type: IncomingTransferType.file,
+        fileName: fileName,
+        fileSize: originalSize,
+        senderName: senderName!,
+        status: 'failed',
+        receivedBytes: 0,
+        filePath: null,
+        error: e.toString(),
+      ));
+    }
+
+    try {
+      await socket.close();
+    } catch (_) {}
+  }
+
+  /// Move temp file to final path — handles cross-filesystem by copying.
+  Future<void> _moveTempToFinal(
+    String tempPath,
+    String finalPath,
+    String fileId,
+    String fileName,
+    int originalSize,
+    String senderName,
+  ) async {
+    try {
+      final tempFile = File(tempPath);
+      if (!await tempFile.exists()) {
+        throw Exception('temp file not found');
+      }
+
+      // Try rename first (same filesystem, fast)
+      await tempFile.rename(finalPath);
+      await tempFile.delete();
+
+      _incomingController.add(IncomingTransfer(
+        id: fileId,
+        type: IncomingTransferType.file,
+        fileName: fileName,
+        fileSize: originalSize,
+        senderName: senderName!,
+        status: 'received',
+        receivedBytes: originalSize,
+        filePath: finalPath,
+      ));
+      debugPrint('File received (moved): $fileName -> $finalPath');
+    } catch (e) {
+      // Rename failed (cross-device) — copy and delete temp
+      debugPrint('Rename failed, copying: $e');
+      try {
+        final tempFile = File(tempPath);
+        final finalFile = File(finalPath);
+        final sink = finalFile.openWrite();
+        await for (final chunk in tempFile.openRead()) {
+          sink.add(chunk);
         }
-        debugPrint('Checksum verified: $actualChecksum');
+        await sink.close();
+        await tempFile.delete();
+      } catch (e2) {
+        debugPrint('Copy fallback error: $e2');
       }
 
       _incomingController.add(IncomingTransfer(
         id: fileId,
         type: IncomingTransferType.file,
-        fileName: headerJson['fileName'] as String,
-        fileSize: originalSize ?? headerJson['fileSize'] as int,
-        senderName: headerJson['senderName'] as String? ?? 'Unknown',
+        fileName: fileName,
+        fileSize: originalSize,
+        senderName: senderName!,
         status: 'received',
-        receivedBytes: fileData.length,
-        fileData: fileData,
+        receivedBytes: originalSize,
+        filePath: finalPath,
       ));
-
-      debugPrint('File received: ${headerJson['fileName']} (${fileData.length} bytes)');
-
-      // Clean up temp file
-      try { await File(tempPath).delete(); } catch (_) {}
-    } catch (e) {
-      debugPrint('Finalize error: $e');
+      debugPrint('File received (copied): $fileName -> $finalPath');
     }
 
-    try { await socket.close(); } catch (_) {}
+    try {
+      // Socket already closed by caller
+    } catch (_) {}
   }
 
+  // ═══════════════════════════════════════════
+  //  DISCOVERY
+  // ═══════════════════════════════════════════
   Future<void> _handleDiscovery(
-      Socket socket, Map<String, dynamic> json, String deviceName) async {
+    Socket socket,
+    Map<String, dynamic> json,
+    String deviceName,
+  ) async {
     try {
       final response = jsonEncode({
         'type': 'found',
@@ -338,28 +538,39 @@ class LocalNetworkService {
       debugPrint('Discovery response sent: $deviceName');
     } catch (e) {
       debugPrint('Discovery response error: $e');
-      try { await socket.close(); } catch (_) {}
+      try {
+        await socket.close();
+      } catch (_) {}
     }
   }
 
+  // ═══════════════════════════════════════════
+  //  INCOMING TEXT
+  // ═══════════════════════════════════════════
   Future<void> _handleIncomingText(
-      Socket socket, Map<String, dynamic> json) async {
+    Socket socket,
+    Map<String, dynamic> json,
+  ) async {
     final content = json['content'] as String;
     final senderName = json['senderName'] as String? ?? 'Unknown';
     debugPrint('Incoming text from $senderName');
 
-    socket.add(Uint8List.fromList(utf8.encode(jsonEncode({'type': 'ack'}))));
+    socket.add(Uint8List.fromList(
+        utf8.encode(jsonEncode({'type': 'ack'}))));
     await socket.flush();
     await socket.close();
 
     _incomingController.add(IncomingTransfer(
       type: IncomingTransferType.text,
       textContent: content,
-      senderName: senderName,
+      senderName: senderName!,
       status: 'completed',
     ));
   }
 
+  // ═══════════════════════════════════════════
+  //  SCAN
+  // ═══════════════════════════════════════════
   Future<List<DiscoveredDevice>> scanForDevices() async {
     _discoveredDevices.clear();
     _deviceController.add([]);
@@ -436,7 +647,9 @@ class LocalNetworkService {
     } catch (e) {
       // Connection refused or timeout
     } finally {
-      try { await socket?.close(); } catch (_) {}
+      try {
+        await socket?.close();
+      } catch (_) {}
     }
     return null;
   }
@@ -453,8 +666,15 @@ class LocalNetworkService {
     _serverSocket?.close();
     _serverSocket = null;
   }
+
+  /// Android download directory
+  Directory get _androidDownloadDir =>
+      Directory('/storage/emulated/0/Download/ZenTransfer');
 }
 
+// ═══════════════════════════════════════════
+//  Incoming transfer event
+// ═══════════════════════════════════════════
 enum IncomingTransferType { file, text }
 
 class IncomingTransfer {
@@ -465,8 +685,10 @@ class IncomingTransfer {
   final String senderName;
   final String status; // receiving, received, completed, failed
   final int receivedBytes;
-  final Uint8List? fileData;
+  final String? filePath; // final disk path (no in-memory blob)
   final String? textContent;
+  final String? error;
+  final String? pendingFinalPath;
 
   IncomingTransfer({
     String? id,
@@ -476,7 +698,10 @@ class IncomingTransfer {
     required this.senderName,
     required this.status,
     this.receivedBytes = 0,
-    this.fileData,
+    this.filePath,
     this.textContent,
-  }) : id = id ?? '${fileName ?? "text"}_${DateTime.now().millisecondsSinceEpoch}';
+    this.error,
+    this.pendingFinalPath,
+  }) : id = id ??
+            '${fileName ?? 'text'}_${DateTime.now().millisecondsSinceEpoch}';
 }
